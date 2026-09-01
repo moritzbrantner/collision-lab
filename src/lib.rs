@@ -42,7 +42,7 @@ impl Default for Config {
         Self {
             objects: 10_000,
             cell_size: 2.5,
-            seed: 0xC011_1D3,
+            seed: 0x0C01_11D3,
             world_extent: 100.0,
             half_extent: 0.5,
             scenario: Scenario::Uniform,
