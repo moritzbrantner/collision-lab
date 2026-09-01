@@ -12,7 +12,9 @@ impl Scenario {
         match value {
             "uniform" => Ok(Self::Uniform),
             "clustered" => Ok(Self::Clustered),
-            other => Err(format!("unknown scenario `{other}`; expected uniform or clustered")),
+            other => Err(format!(
+                "unknown scenario `{other}`; expected uniform or clustered"
+            )),
         }
     }
 
@@ -119,7 +121,9 @@ pub fn generate_scene(config: Config) -> Vec<Body> {
 
 #[must_use]
 pub fn run_experiment(config: Config) -> Experiment {
-    let config = config.validate().expect("validated experiment configuration");
+    let config = config
+        .validate()
+        .expect("validated experiment configuration");
     let bodies = generate_scene(config);
 
     let started = Instant::now();
@@ -136,9 +140,8 @@ pub fn run_experiment(config: Config) -> Experiment {
         elapsed: started.elapsed(),
     };
 
-    let possible_pairs = (config.objects as u64)
-        .saturating_mul(config.objects.saturating_sub(1) as u64)
-        / 2;
+    let possible_pairs =
+        (config.objects as u64).saturating_mul(config.objects.saturating_sub(1) as u64) / 2;
 
     Experiment {
         objects: config.objects,
@@ -224,7 +227,11 @@ mod tests {
                 scenario,
                 ..Config::default()
             });
-            assert!(experiment.pair_sets_match(), "scenario {}", scenario.as_str());
+            assert!(
+                experiment.pair_sets_match(),
+                "scenario {}",
+                scenario.as_str()
+            );
         }
     }
 
