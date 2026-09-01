@@ -66,12 +66,8 @@ fn parse_config(args: Vec<String>) -> Result<Config, String> {
             "--objects" => config.objects = parse(&next_value(&mut args, &flag)?, &flag)?,
             "--cell-size" => config.cell_size = parse(&next_value(&mut args, &flag)?, &flag)?,
             "--seed" => config.seed = parse(&next_value(&mut args, &flag)?, &flag)?,
-            "--world-extent" => {
-                config.world_extent = parse(&next_value(&mut args, &flag)?, &flag)?
-            }
-            "--half-extent" => {
-                config.half_extent = parse(&next_value(&mut args, &flag)?, &flag)?
-            }
+            "--world-extent" => config.world_extent = parse(&next_value(&mut args, &flag)?, &flag)?,
+            "--half-extent" => config.half_extent = parse(&next_value(&mut args, &flag)?, &flag)?,
             "--scenario" => config.scenario = Scenario::parse(&next_value(&mut args, &flag)?)?,
             _ => return Err(format!("unknown option `{flag}`")),
         }
