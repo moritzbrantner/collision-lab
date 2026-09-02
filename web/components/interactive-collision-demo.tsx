@@ -13,6 +13,8 @@ type AlgorithmId =
   | "static-bvh"
   | "dynamic-aabb-tree";
 
+type Pair = [number, number];
+
 type DemoBody = {
   id: number;
   min: [number, number, number];
@@ -26,17 +28,60 @@ type DemoSnapshot = {
   scenario: "uniform" | "clustered";
   frame: number;
   bodies: DemoBody[];
-  pairs: [number, number][];
-  counts: {
-    static: number;
-    dynamic: number;
-  };
-  stats: {
-    aabbTests: number;
-    occupiedCells: number | null;
-  };
+  pairs: Pair[];
+  counts: { static: number; dynamic: number };
+  stats: { aabbTests: number; occupiedCells: number | null };
   possiblePairs: number;
 };
+
+type GridTraceStep = {
+  cell: [number, number, number];
+  members: number[];
+  candidateCount: number;
+  testedCount: number;
+  overlapCount: number;
+  candidatePairs: Pair[];
+  testedPairs: Pair[];
+  overlappingPairs: Pair[];
+};
+
+type GridTrace = {
+  kind: "uniform-grid";
+  frame: number;
+  aabbTests: number;
+  cellSize: number;
+  steps: GridTraceStep[];
+};
+
+type SweepTraceStep = {
+  current: number;
+  intervalMin: number;
+  intervalMax: number;
+  expired: number[];
+  activeBeforeTests: number[];
+  testedCount: number;
+  overlapCount: number;
+  testedPairs: Pair[];
+  overlappingPairs: Pair[];
+  activeAfter: number[];
+};
+
+type SweepTrace = {
+  kind: "sweep-and-prune";
+  frame: number;
+  axis: "x";
+  aabbTests: number;
+  order: number[];
+  steps: SweepTraceStep[];
+};
+
+type UnsupportedTrace = {
+  kind: "unsupported";
+  frame: number;
+  algorithm: AlgorithmId;
+};
+
+type AlgorithmTrace = GridTrace | SweepTrace | UnsupportedTrace;
 
 type RenderResources = {
   scene: THREE.Scene;
@@ -46,6 +91,9 @@ type RenderResources = {
   bodyMesh: THREE.InstancedMesh;
   fatMesh: THREE.InstancedMesh | null;
   pairLines: THREE.LineSegments;
+  tracePairLines: THREE.LineSegments;
+  sweepPlane: THREE.Mesh | null;
+  traceCellHelper: THREE.Box3Helper | null;
   resizeObserver: ResizeObserver;
   animationFrame: number;
 };
@@ -79,6 +127,8 @@ export function InteractiveCollisionDemo({
   const [seed, setSeed] = useState(42);
   const [isPlaying, setIsPlaying] = useState(true);
   const [snapshot, setSnapshot] = useState<DemoSnapshot | null>(null);
+  const [trace, setTrace] = useState<AlgorithmTrace | null>(null);
+  const [traceStepIndex, setTraceStepIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const worldExtent = 28;
@@ -125,8 +175,7 @@ export function InteractiveCollisionDemo({
       worldRef.current?.free();
       worldRef.current = null;
     };
-    // `algorithm` intentionally does not recreate the deterministic world.
-    // Switching broad phases should inspect the same simulation frame.
+    // Switching broad phases should inspect the same world instead of recreating it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wasmReady, scenario, objects, cellSize, fatMargin, seed, dynamicFraction, speed]);
 
@@ -161,14 +210,52 @@ export function InteractiveCollisionDemo({
     return () => window.clearInterval(timer);
   }, [algorithm, isPlaying, wasmReady]);
 
-  const collidingIds = useMemo(() => {
-    const ids = new Set<number>();
-    for (const [a, b] of snapshot?.pairs ?? []) {
-      ids.add(a);
-      ids.add(b);
+  useEffect(() => {
+    const world = worldRef.current;
+    if (isPlaying || !world || !snapshot) {
+      setTrace(null);
+      setTraceStepIndex(0);
+      return;
     }
-    return ids;
-  }, [snapshot]);
+
+    try {
+      setTrace(JSON.parse(world.trace_json(algorithm)) as AlgorithmTrace);
+      setTraceStepIndex(0);
+      setError(null);
+    } catch (reason) {
+      setError(String(reason));
+    }
+  }, [algorithm, isPlaying, snapshot]);
+
+  const currentTraceStep = useMemo(() => {
+    if (!trace || trace.kind === "unsupported") return null;
+    if (trace.steps.length === 0) return null;
+    return trace.steps[Math.min(traceStepIndex, trace.steps.length - 1)];
+  }, [trace, traceStepIndex]);
+
+  const collidingIds = useMemo(() => idsFromPairs(snapshot?.pairs ?? []), [snapshot]);
+
+  const traceFocus = useMemo(() => {
+    const active = new Set<number>();
+    const current = new Set<number>();
+    const overlaps = new Set<number>();
+    const testedPairs: Pair[] = [];
+
+    if (trace?.kind === "uniform-grid" && currentTraceStep) {
+      const step = currentTraceStep as GridTraceStep;
+      step.members.forEach((id) => active.add(id));
+      step.overlappingPairs.flat().forEach((id) => overlaps.add(id));
+      testedPairs.push(...step.testedPairs);
+    } else if (trace?.kind === "sweep-and-prune" && currentTraceStep) {
+      const step = currentTraceStep as SweepTraceStep;
+      current.add(step.current);
+      step.activeBeforeTests.forEach((id) => active.add(id));
+      step.overlappingPairs.flat().forEach((id) => overlaps.add(id));
+      testedPairs.push(...step.testedPairs);
+    }
+
+    return { active, current, overlaps, testedPairs };
+  }, [currentTraceStep, trace]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -193,57 +280,69 @@ export function InteractiveCollisionDemo({
 
     scene.add(new THREE.AmbientLight(0xffffff, 1.5));
     scene.add(new THREE.AxesHelper(8));
-
-    const worldBox = new THREE.Box3(
-      new THREE.Vector3(-worldExtent, -worldExtent, -worldExtent),
-      new THREE.Vector3(worldExtent, worldExtent, worldExtent),
+    scene.add(
+      new THREE.Box3Helper(
+        new THREE.Box3(
+          new THREE.Vector3(-worldExtent, -worldExtent, -worldExtent),
+          new THREE.Vector3(worldExtent, worldExtent, worldExtent),
+        ),
+        0x3f3f46,
+      ),
     );
-    scene.add(new THREE.Box3Helper(worldBox, 0x3f3f46));
 
     if (algorithm === "uniform-grid") {
       const divisions = Math.max(4, Math.min(40, Math.round((worldExtent * 2) / cellSize)));
       scene.add(new THREE.GridHelper(worldExtent * 2, divisions, 0x71717a, 0x27272a));
     }
 
+    let sweepPlane: THREE.Mesh | null = null;
     if (algorithm === "sweep-and-prune") {
       const sweepGeometry = new THREE.BoxGeometry(0.12, worldExtent * 2, worldExtent * 2);
       const sweepMaterial = new THREE.MeshBasicMaterial({
         color: 0x60a5fa,
         transparent: true,
-        opacity: 0.1,
+        opacity: 0.12,
       });
-      scene.add(new THREE.Mesh(sweepGeometry, sweepMaterial));
+      sweepPlane = new THREE.Mesh(sweepGeometry, sweepMaterial);
+      scene.add(sweepPlane);
     }
 
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.MeshBasicMaterial({ wireframe: true, vertexColors: true });
-    const bodyMesh = new THREE.InstancedMesh(geometry, material, objects);
+    const bodyMesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshBasicMaterial({ wireframe: true, vertexColors: true }),
+      objects,
+    );
     bodyMesh.count = 0;
     bodyMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     scene.add(bodyMesh);
 
     let fatMesh: THREE.InstancedMesh | null = null;
     if (algorithm === "dynamic-aabb-tree") {
-      const fatGeometry = new THREE.BoxGeometry(1, 1, 1);
-      const fatMaterial = new THREE.MeshBasicMaterial({
-        color: 0xa78bfa,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.12,
-      });
-      fatMesh = new THREE.InstancedMesh(fatGeometry, fatMaterial, objects);
+      fatMesh = new THREE.InstancedMesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshBasicMaterial({
+          color: 0xa78bfa,
+          wireframe: true,
+          transparent: true,
+          opacity: 0.12,
+        }),
+        objects,
+      );
       fatMesh.count = 0;
       scene.add(fatMesh);
     }
 
-    const pairGeometry = new THREE.BufferGeometry();
-    const pairMaterial = new THREE.LineBasicMaterial({
-      color: 0xef4444,
-      transparent: true,
-      opacity: 0.45,
-    });
-    const pairLines = new THREE.LineSegments(pairGeometry, pairMaterial);
+    const pairLines = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.35 }),
+    );
     scene.add(pairLines);
+
+    const tracePairLines = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0xfacc15, transparent: true, opacity: 0.9 }),
+    );
+    scene.add(tracePairLines);
 
     let animationFrame = 0;
     const render = () => {
@@ -271,6 +370,9 @@ export function InteractiveCollisionDemo({
       bodyMesh,
       fatMesh,
       pairLines,
+      tracePairLines,
+      sweepPlane,
+      traceCellHelper: null,
       resizeObserver,
       animationFrame,
     };
@@ -287,18 +389,15 @@ export function InteractiveCollisionDemo({
         ) {
           object.geometry.dispose();
           const objectMaterial = object.material;
-          if (Array.isArray(objectMaterial)) {
-            objectMaterial.forEach((entry) => entry.dispose());
-          } else {
-            objectMaterial.dispose();
-          }
+          if (Array.isArray(objectMaterial)) objectMaterial.forEach((entry) => entry.dispose());
+          else objectMaterial.dispose();
         }
       });
       renderer.dispose();
       renderRef.current = null;
       mount.replaceChildren();
     };
-  }, [algorithm, cellSize, fatMargin, objects, worldExtent]);
+  }, [algorithm, cellSize, objects, worldExtent]);
 
   useEffect(() => {
     const resources = renderRef.current;
@@ -311,6 +410,8 @@ export function InteractiveCollisionDemo({
     const staticColor = new THREE.Color(0x71717a);
     const dynamicColor = new THREE.Color(0x22d3ee);
     const collisionColor = new THREE.Color(0xf87171);
+    const activeColor = new THREE.Color(0xa78bfa);
+    const currentColor = new THREE.Color(0xfacc15);
     const centers = new Map<number, THREE.Vector3>();
 
     resources.bodyMesh.count = snapshot.bodies.length;
@@ -327,11 +428,13 @@ export function InteractiveCollisionDemo({
       );
       matrix.compose(position, quaternion, scale);
       resources.bodyMesh.setMatrixAt(index, matrix);
-      const baseColor = body.motion === "dynamic" ? dynamicColor : staticColor;
-      resources.bodyMesh.setColorAt(
-        index,
-        collidingIds.has(body.id) ? collisionColor : baseColor,
-      );
+
+      let color = body.motion === "dynamic" ? dynamicColor : staticColor;
+      if (collidingIds.has(body.id)) color = collisionColor;
+      if (traceFocus.active.has(body.id)) color = activeColor;
+      if (traceFocus.overlaps.has(body.id)) color = collisionColor;
+      if (traceFocus.current.has(body.id)) color = currentColor;
+      resources.bodyMesh.setColorAt(index, color);
       centers.set(body.id, position.clone());
     });
     resources.bodyMesh.instanceMatrix.needsUpdate = true;
@@ -356,25 +459,44 @@ export function InteractiveCollisionDemo({
       resources.fatMesh.instanceMatrix.needsUpdate = true;
     }
 
-    const visiblePairs = snapshot.pairs.slice(0, 1500);
-    const positions = new Float32Array(visiblePairs.length * 6);
-    visiblePairs.forEach(([a, b], index) => {
-      const left = centers.get(a);
-      const right = centers.get(b);
-      if (!left || !right) return;
-      const offset = index * 6;
-      positions[offset] = left.x;
-      positions[offset + 1] = left.y;
-      positions[offset + 2] = left.z;
-      positions[offset + 3] = right.x;
-      positions[offset + 4] = right.y;
-      positions[offset + 5] = right.z;
-    });
-    resources.pairLines.geometry.dispose();
-    const pairGeometry = new THREE.BufferGeometry();
-    pairGeometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    resources.pairLines.geometry = pairGeometry;
-  }, [collidingIds, fatMargin, snapshot]);
+    replaceLineGeometry(resources.pairLines, snapshot.pairs.slice(0, 1500), centers);
+    replaceLineGeometry(resources.tracePairLines, traceFocus.testedPairs, centers);
+  }, [collidingIds, fatMargin, snapshot, traceFocus]);
+
+  useEffect(() => {
+    const resources = renderRef.current;
+    if (!resources) return;
+
+    if (resources.traceCellHelper) {
+      resources.scene.remove(resources.traceCellHelper);
+      resources.traceCellHelper.geometry.dispose();
+      const material = resources.traceCellHelper.material;
+      if (Array.isArray(material)) material.forEach((entry) => entry.dispose());
+      else material.dispose();
+      resources.traceCellHelper = null;
+    }
+
+    if (trace?.kind === "uniform-grid" && currentTraceStep) {
+      const step = currentTraceStep as GridTraceStep;
+      const [x, y, z] = step.cell;
+      const helper = new THREE.Box3Helper(
+        new THREE.Box3(
+          new THREE.Vector3(x * cellSize, y * cellSize, z * cellSize),
+          new THREE.Vector3((x + 1) * cellSize, (y + 1) * cellSize, (z + 1) * cellSize),
+        ),
+        0xfacc15,
+      );
+      resources.scene.add(helper);
+      resources.traceCellHelper = helper;
+    }
+
+    if (resources.sweepPlane) {
+      resources.sweepPlane.position.x =
+        trace?.kind === "sweep-and-prune" && currentTraceStep
+          ? (currentTraceStep as SweepTraceStep).intervalMin
+          : 0;
+    }
+  }, [cellSize, currentTraceStep, trace]);
 
   const reduction =
     snapshot && snapshot.possiblePairs > 0
@@ -403,7 +525,7 @@ export function InteractiveCollisionDemo({
           </p>
           <h2 className="mt-2 text-xl font-semibold text-zinc-100">Live collision playground</h2>
           <p className="mt-2 text-sm leading-6 text-zinc-500">
-            Static bodies stay fixed. Dynamic bodies move in deterministic fixed timesteps. Rust owns both motion and collision results.
+            Static bodies stay fixed. Dynamic bodies move in deterministic fixed timesteps. Pause to inspect the actual Rust broad-phase trace.
           </p>
 
           <label className="mt-6 block text-xs font-semibold text-zinc-400">
@@ -414,9 +536,7 @@ export function InteractiveCollisionDemo({
               className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200"
             >
               {ALGORITHMS.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
+                <option key={item.value} value={item.value}>{item.label}</option>
               ))}
             </select>
           </label>
@@ -434,14 +554,7 @@ export function InteractiveCollisionDemo({
           </label>
 
           <Control label={`Objects · ${objects}`} min={40} max={600} step={20} value={objects} onChange={setObjects} />
-          <Control
-            label={`Moving · ${Math.round(dynamicFraction * 100)}%`}
-            min={0}
-            max={1}
-            step={0.05}
-            value={dynamicFraction}
-            onChange={setDynamicFraction}
-          />
+          <Control label={`Moving · ${Math.round(dynamicFraction * 100)}%`} min={0} max={1} step={0.05} value={dynamicFraction} onChange={setDynamicFraction} />
           <Control label={`Speed · ${speed.toFixed(1)}`} min={0} max={20} step={0.5} value={speed} onChange={setSpeed} />
           <Control label={`Grid cell · ${cellSize.toFixed(1)}`} min={1} max={12} step={0.5} value={cellSize} onChange={setCellSize} />
           <Control label={`Fat margin · ${fatMargin.toFixed(1)}`} min={0} max={5} step={0.25} value={fatMargin} onChange={setFatMargin} />
@@ -460,7 +573,7 @@ export function InteractiveCollisionDemo({
               disabled={isPlaying}
               className="rounded-lg border border-zinc-700 px-3 py-2 text-sm font-semibold text-zinc-200 transition hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Step
+              Simulation step
             </button>
           </div>
           <button
@@ -474,7 +587,9 @@ export function InteractiveCollisionDemo({
           <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 text-xs text-zinc-500">
             <Legend colorClass="bg-zinc-500" label="Static" />
             <Legend colorClass="bg-cyan-400" label="Dynamic" />
-            <Legend colorClass="bg-red-400" label="Colliding" />
+            <Legend colorClass="bg-red-400" label="Collision" />
+            <Legend colorClass="bg-violet-400" label="Trace active" />
+            <Legend colorClass="bg-yellow-400" label="Trace current" />
           </div>
 
           <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
@@ -487,21 +602,25 @@ export function InteractiveCollisionDemo({
           </dl>
 
           {error && (
-            <p className="mt-5 rounded-lg border border-red-900/50 bg-red-950/30 p-3 text-xs leading-5 text-red-300">
-              {error}
-            </p>
+            <p className="mt-5 rounded-lg border border-red-900/50 bg-red-950/30 p-3 text-xs leading-5 text-red-300">{error}</p>
           )}
         </div>
 
-        <div className="relative min-h-[34rem]">
+        <div className="relative min-h-[38rem]">
           <div ref={mountRef} className="absolute inset-0" />
           {!snapshot && !error && (
-            <div className="absolute inset-0 grid place-items-center text-sm text-zinc-500">
-              Loading Rust/WASM…
+            <div className="absolute inset-0 grid place-items-center text-sm text-zinc-500">Loading Rust/WASM…</div>
+          )}
+          {!isPlaying && snapshot && (
+            <TraceInspector trace={trace} stepIndex={traceStepIndex} onStepChange={setTraceStepIndex} />
+          )}
+          {isPlaying && (
+            <div className="pointer-events-none absolute right-3 top-3 rounded-lg border border-zinc-800 bg-zinc-950/85 px-3 py-2 text-xs text-zinc-500 backdrop-blur">
+              Pause the simulation to inspect kernel execution.
             </div>
           )}
           <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-zinc-950/80 px-3 py-2 text-xs text-zinc-500 backdrop-blur">
-            Drag to orbit · scroll to zoom · Pause then Step to inspect frames
+            Drag to orbit · scroll to zoom
           </div>
         </div>
       </div>
@@ -509,33 +628,112 @@ export function InteractiveCollisionDemo({
   );
 }
 
-function Control({
-  label,
-  min,
-  max,
-  step,
-  value,
-  onChange,
+function TraceInspector({
+  trace,
+  stepIndex,
+  onStepChange,
 }: {
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-  value: number;
-  onChange: (value: number) => void;
+  trace: AlgorithmTrace | null;
+  stepIndex: number;
+  onStepChange: (index: number) => void;
 }) {
+  if (!trace) {
+    return <TraceCard>Computing the Rust execution trace…</TraceCard>;
+  }
+  if (trace.kind === "unsupported") {
+    return (
+      <TraceCard>
+        <p className="font-semibold text-zinc-200">Trace coming next</p>
+        <p className="mt-2 leading-5 text-zinc-500">
+          This first inspector covers uniform grid and sweep-and-prune. BVH traversal and dynamic-tree mutation traces are the next batch.
+        </p>
+      </TraceCard>
+    );
+  }
+
+  const maxIndex = Math.max(0, trace.steps.length - 1);
+  const index = Math.min(stepIndex, maxIndex);
+  const step = trace.steps[index];
+
+  return (
+    <div className="absolute right-3 top-3 z-10 w-[min(24rem,calc(100%-1.5rem))] rounded-2xl border border-zinc-700 bg-zinc-950/95 p-4 text-xs shadow-2xl backdrop-blur">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="font-semibold uppercase tracking-[0.16em] text-zinc-500">Kernel execution trace</p>
+          <p className="mt-1 text-sm font-semibold text-zinc-100">
+            {trace.kind === "uniform-grid" ? "Uniform grid" : "Sweep and prune"}
+          </p>
+        </div>
+        <span className="font-mono text-zinc-500">{index + 1}/{trace.steps.length}</span>
+      </div>
+
+      <input
+        type="range"
+        min={0}
+        max={maxIndex}
+        value={index}
+        onChange={(event) => onStepChange(Number(event.target.value))}
+        className="mt-4 w-full accent-yellow-300"
+      />
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <button type="button" disabled={index === 0} onClick={() => onStepChange(index - 1)} className="rounded-lg border border-zinc-700 px-3 py-2 text-zinc-300 disabled:opacity-30">← Previous</button>
+        <button type="button" disabled={index === maxIndex} onClick={() => onStepChange(index + 1)} className="rounded-lg border border-zinc-700 px-3 py-2 text-zinc-300 disabled:opacity-30">Next →</button>
+      </div>
+
+      {trace.kind === "uniform-grid" ? (
+        <GridStepDetails step={step as GridTraceStep} />
+      ) : (
+        <SweepStepDetails step={step as SweepTraceStep} />
+      )}
+    </div>
+  );
+}
+
+function GridStepDetails({ step }: { step: GridTraceStep }) {
+  return (
+    <div className="mt-4 space-y-3">
+      <TraceMetric label="Cell" value={`(${step.cell.join(", ")})`} />
+      <TraceMetric label="Members" value={`${step.members.length} · ${formatIds(step.members)}`} />
+      <div className="grid grid-cols-3 gap-2">
+        <SmallMetric label="Candidates" value={step.candidateCount} />
+        <SmallMetric label="New tests" value={step.testedCount} />
+        <SmallMetric label="Overlaps" value={step.overlapCount} />
+      </div>
+      <PairPreview label="New exact tests" pairs={step.testedPairs} />
+      <PairPreview label="Overlaps found here" pairs={step.overlappingPairs} />
+    </div>
+  );
+}
+
+function SweepStepDetails({ step }: { step: SweepTraceStep }) {
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        <SmallMetric label="Current body" value={step.current} />
+        <SmallMetric label="New tests" value={step.testedCount} />
+      </div>
+      <TraceMetric label="X interval" value={`${step.intervalMin.toFixed(2)} → ${step.intervalMax.toFixed(2)}`} />
+      <TraceMetric label="Expired" value={formatIds(step.expired)} />
+      <TraceMetric label="Active before tests" value={formatIds(step.activeBeforeTests)} />
+      <PairPreview label="Pairs tested" pairs={step.testedPairs} />
+      <PairPreview label="Overlaps found" pairs={step.overlappingPairs} />
+    </div>
+  );
+}
+
+function TraceCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="absolute right-3 top-3 z-10 w-[min(22rem,calc(100%-1.5rem))] rounded-2xl border border-zinc-800 bg-zinc-950/95 p-4 text-xs text-zinc-400 shadow-2xl backdrop-blur">
+      {children}
+    </div>
+  );
+}
+
+function Control({ label, min, max, step, value, onChange }: { label: string; min: number; max: number; step: number; value: number; onChange: (value: number) => void }) {
   return (
     <label className="mt-4 block text-xs font-semibold text-zinc-400">
       {label}
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="mt-2 w-full accent-zinc-200"
-      />
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} className="mt-2 w-full accent-zinc-200" />
     </label>
   );
 }
@@ -549,6 +747,28 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function SmallMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-2">
+      <div className="text-[10px] uppercase tracking-wide text-zinc-600">{label}</div>
+      <div className="mt-1 font-mono text-zinc-200">{value}</div>
+    </div>
+  );
+}
+
+function TraceMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wide text-zinc-600">{label}</div>
+      <div className="mt-1 break-words font-mono leading-5 text-zinc-300">{value || "—"}</div>
+    </div>
+  );
+}
+
+function PairPreview({ label, pairs }: { label: string; pairs: Pair[] }) {
+  return <TraceMetric label={label} value={pairs.length ? pairs.map(([a, b]) => `${a}↔${b}`).join(" · ") : "—"} />;
+}
+
 function Legend({ colorClass, label }: { colorClass: string; label: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
@@ -556,4 +776,43 @@ function Legend({ colorClass, label }: { colorClass: string; label: string }) {
       {label}
     </span>
   );
+}
+
+function idsFromPairs(pairs: Pair[]) {
+  const ids = new Set<number>();
+  pairs.forEach(([a, b]) => {
+    ids.add(a);
+    ids.add(b);
+  });
+  return ids;
+}
+
+function formatIds(ids: number[]) {
+  if (ids.length === 0) return "—";
+  const preview = ids.slice(0, 20).join(", ");
+  return ids.length > 20 ? `${preview}, … +${ids.length - 20}` : preview;
+}
+
+function replaceLineGeometry(
+  lines: THREE.LineSegments,
+  pairs: Pair[],
+  centers: Map<number, THREE.Vector3>,
+) {
+  const positions = new Float32Array(pairs.length * 6);
+  pairs.forEach(([a, b], index) => {
+    const left = centers.get(a);
+    const right = centers.get(b);
+    if (!left || !right) return;
+    const offset = index * 6;
+    positions[offset] = left.x;
+    positions[offset + 1] = left.y;
+    positions[offset + 2] = left.z;
+    positions[offset + 3] = right.x;
+    positions[offset + 4] = right.y;
+    positions[offset + 5] = right.z;
+  });
+  lines.geometry.dispose();
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  lines.geometry = geometry;
 }
