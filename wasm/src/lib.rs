@@ -25,6 +25,7 @@ impl DemoWorld {
         half_extent: f32,
         dynamic_fraction: f32,
         speed: f32,
+        sensor_fraction: f32,
     ) -> Result<DemoWorld, JsValue> {
         let scenario = Scenario::parse(scenario).map_err(|error| JsValue::from_str(&error))?;
         let config = Config {
@@ -44,7 +45,9 @@ impl DemoWorld {
         }
         .validate()
         .map_err(|error| JsValue::from_str(&error))?;
-        let interaction = InteractionConfig::default();
+        let interaction = InteractionConfig { sensor_fraction }
+            .validate()
+            .map_err(|error| JsValue::from_str(&error))?;
 
         Ok(Self {
             simulation: Simulation::new(config, motion, interaction),
@@ -101,6 +104,7 @@ pub fn run_demo_json(
         seed,
         world_extent,
         half_extent,
+        0.0,
         0.0,
         0.0,
     )?;
