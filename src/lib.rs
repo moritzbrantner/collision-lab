@@ -223,11 +223,7 @@ pub fn run_experiment(config: Config) -> Experiment {
 }
 
 fn random_point(rng: &mut SplitMix64, extent: f32) -> [f32; 3] {
-    [
-        rng.signed(extent),
-        rng.signed(extent),
-        rng.signed(extent),
-    ]
+    [rng.signed(extent), rng.signed(extent), rng.signed(extent)]
 }
 
 fn clustered_point(rng: &mut SplitMix64, extent: f32) -> [f32; 3] {
@@ -322,7 +318,11 @@ mod tests {
         assert!(experiment.pair_sets_match());
         let naive_tests = experiment.runs[0].result.stats.aabb_tests;
         for run in &experiment.runs[1..] {
-            assert!(run.result.stats.aabb_tests < naive_tests, "{:?}", run.algorithm);
+            assert!(
+                run.result.stats.aabb_tests < naive_tests,
+                "{:?}",
+                run.algorithm
+            );
         }
     }
 }
