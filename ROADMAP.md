@@ -18,20 +18,20 @@ Collision Lab is an interactive laboratory for learning, comparing, testing, and
 A deliberately simplified 2D teaching surface.
 
 - 5–8 labeled rectangles instead of hundreds of anonymous 3D objects.
-- Hand-designed deterministic scenes that make the relevant edge case obvious.
+- Hand-designed or fixed deterministic scenes that make the relevant edge case obvious.
 - Large Previous / Next / Reset controls and a scrubber.
 - One algorithmic idea per view.
 - Explicit labels such as `candidate`, `rejected`, `active`, `pruned`, `overlap`, and `exact test`.
 - Rust/WASM remains the source of overlap results and execution traces; the web UI projects those traces into 2D SVG.
 - Prefer diagrams that can be understood without already knowing collision-detection terminology.
 
-Initial explanation sequence:
+Current explanation sequence:
 
-1. **Naive all-pairs** — show why `n(n-1)/2` grows quickly and highlight one pair at a time.
-2. **Uniform grid** — show cell membership, duplicated candidates across cells, candidate deduplication, and exact AABB tests.
-3. **Sweep-and-prune** — show X intervals, the sweep line, the active set, expirations, and which full AABB tests remain.
-4. **Static BVH** — show node-pair traversal and make whole-subtree pruning visually obvious.
-5. **Dynamic AABB tree** — show exact AABB versus fat AABB, contained movement, reinsertion, and structural changes.
+1. ✅ **Naive all-pairs** — show why `n(n-1)/2` grows quickly and highlight one pair at a time.
+2. ✅ **Uniform grid** — show cell membership, duplicated candidates across cells, candidate deduplication, and exact AABB tests.
+3. ✅ **Sweep-and-prune** — show X intervals, the sweep line, the active set, expirations, and which full AABB tests remain.
+4. ⏭️ **Static BVH** — show node-pair traversal and make whole-subtree pruning visually obvious.
+5. ⏭️ **Dynamic AABB tree** — show exact AABB versus fat AABB, contained movement, reinsertion, and structural changes.
 
 Later explanation scenes should cover adversarial cases: bad grid cell size, clustered objects, elongated objects, everything overlapping, and fast-moving objects.
 
@@ -65,12 +65,14 @@ Explanation mode should teach *why* an algorithm works. Experiment mode should r
 - `InteractionKind::{Solid, Sensor}`.
 - World-owned `InteractionMatrix` with live browser editing.
 - Distinct solid and sensor interaction visualization.
+- Homepage split between 2D Explanation mode and 3D Experiment mode.
+- Simplified six-object 2D explanations for naive all-pairs, uniform grid, and sweep-and-prune.
 
 ### Next
 
-1. Build the simplified 2D Explanation Mode and make it the default learning entry point.
-2. Finish static-BVH traversal/pruning trace and browser visualization.
-3. Add richer educational presets rather than only random scene generation.
+1. Finish static-BVH traversal/pruning trace and add it to both 3D inspection and 2D Explanation mode.
+2. Add a dynamic-AABB-tree 2D teaching preset using the retained-tree trace.
+3. Add richer named educational presets rather than only random scene generation.
 4. Add multi-axis / temporally coherent sweep-and-prune experiments.
 5. Add more adversarial broad-phase workloads and side-by-side comparison views.
 
@@ -144,7 +146,6 @@ These should not contaminate reusable collision kernels that do not need physics
 
 ## Educational UX roadmap
 
-- Explanation/Experiment mode switch visible from the homepage.
 - Shareable URLs encoding algorithm + preset + step.
 - Side-by-side “naive versus optimized” views.
 - Small equations and complexity counters that update with object count.
