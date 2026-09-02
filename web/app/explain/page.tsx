@@ -51,7 +51,7 @@ export default function ExplainPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Hierarchy lesson · Dynamic</p>
           <h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">Dynamic AABB tree: reserve space for motion.</h2>
           <p className="mt-3 leading-7 text-zinc-500">
-            A moving object does not need to restructure the hierarchy every frame. Its enlarged fat AABB acts as a reserve. Advance the deterministic Rust simulation until the exact collider finally escapes that reserve and must be reinserted.
+            A moving object does not need to restructure the hierarchy every frame. Its enlarged fat AABB acts as a reserve. Advance the deterministic Rust simulation until the exact collider finally escapes that reserve and must be reinserted. Green marks a contained update; orange marks the reinsertion path.
           </p>
         </div>
         <DynamicAabbExplanation />
