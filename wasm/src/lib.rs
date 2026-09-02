@@ -89,8 +89,9 @@ impl DemoWorld {
         let overlaps = run_algorithm(Algorithm::Naive, self.simulation.config(), &bodies)
             .pairs
             .len();
-        u32::try_from(overlaps)
-            .map_err(|_| JsValue::from_str("naive overlap count exceeds the WASM u32 benchmark result"))
+        u32::try_from(overlaps).map_err(|_| {
+            JsValue::from_str("naive overlap count exceeds the WASM u32 benchmark result")
+        })
     }
 
     pub fn step_json(&mut self, algorithm: &str, dt_seconds: f32) -> Result<String, JsValue> {
