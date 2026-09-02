@@ -1,6 +1,6 @@
 use bvh_kernels::{DynamicAabbTreeBroadPhase, StaticBvhBroadPhase};
 use spatial_kernels::{
-    Body, BroadPhase, BroadPhaseResult, NaiveBroadPhase, SweepAndPruneBroadPhase,
+    Aabb, Body, BroadPhase, BroadPhaseResult, NaiveBroadPhase, SweepAndPruneBroadPhase,
     UniformGridBroadPhase,
 };
 use std::time::{Duration, Instant};
@@ -114,7 +114,179 @@ impl Config {
         if !self.half_extent.is_finite() || self.half_extent < 0.0 {
             return Err("half extent must be non-negative and finite".to_owned());
         }
+        if self.half_extent > self.world_extent {
+            return Err("half extent must not exceed world extent".to_owned());
+        }
         Ok(self)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MotionKind {
+    Static,
+    Dynamic,
+}
+
+impl MotionKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Static => "static",
+            Self::Dynamic => "dynamic",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MotionConfig {
+    pub dynamic_fraction: f32,
+    pub speed: f32,
+}
+
+impl Default for MotionConfig {
+    fn default() -> Self {
+        Self {
+            dynamic_fraction: 0.35,
+            speed: 8.0,
+        }
+    }
+}
+
+impl MotionConfig {
+    pub fn validate(self) -> Result<Self, String> {
+        if !self.dynamic_fraction.is_finite()
+            || self.dynamic_fraction < 0.0
+            || self.dynamic_fraction > 1.0
+        {
+            return Err("dynamic fraction must be finite and between 0 and 1".to_owned());
+        }
+        if !self.speed.is_finite() || self.speed < 0.0 {
+            return Err("motion speed must be non-negative and finite".to_owned());
+        }
+        Ok(self)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SceneEntity {
+    pub body: Body,
+    pub motion: MotionKind,
+    pub velocity: [f32; 3],
+}
+
+#[derive(Clone, Debug)]
+pub struct Simulation {
+    config: Config,
+    motion_config: MotionConfig,
+    entities: Vec<SceneEntity>,
+    frame: u64,
+}
+
+impl Simulation {
+    #[must_use]
+    pub fn new(config: Config, motion_config: MotionConfig) -> Self {
+        let config = config.validate().expect("validated simulation configuration");
+        let motion_config = motion_config
+            .validate()
+            .expect("validated motion configuration");
+        let bodies = generate_scene(config);
+        let mut rng = SplitMix64::new(config.seed ^ 0x4D4F_5449_4F4E_5F31);
+        let entities = bodies
+            .into_iter()
+            .map(|body| {
+                let is_dynamic = rng.unit_f32() < motion_config.dynamic_fraction;
+                if is_dynamic {
+                    SceneEntity {
+                        body,
+                        motion: MotionKind::Dynamic,
+                        velocity: random_velocity(&mut rng, motion_config.speed),
+                    }
+                } else {
+                    SceneEntity {
+                        body,
+                        motion: MotionKind::Static,
+                        velocity: [0.0; 3],
+                    }
+                }
+            })
+            .collect();
+
+        Self {
+            config,
+            motion_config,
+            entities,
+            frame: 0,
+        }
+    }
+
+    #[must_use]
+    pub const fn frame(&self) -> u64 {
+        self.frame
+    }
+
+    #[must_use]
+    pub const fn config(&self) -> Config {
+        self.config
+    }
+
+    #[must_use]
+    pub const fn motion_config(&self) -> MotionConfig {
+        self.motion_config
+    }
+
+    #[must_use]
+    pub fn entities(&self) -> &[SceneEntity] {
+        &self.entities
+    }
+
+    #[must_use]
+    pub fn bodies(&self) -> Vec<Body> {
+        self.entities.iter().map(|entity| entity.body).collect()
+    }
+
+    #[must_use]
+    pub fn counts(&self) -> (usize, usize) {
+        let dynamic = self
+            .entities
+            .iter()
+            .filter(|entity| entity.motion == MotionKind::Dynamic)
+            .count();
+        (self.entities.len() - dynamic, dynamic)
+    }
+
+    pub fn step(&mut self, dt_seconds: f32) {
+        assert!(
+            dt_seconds.is_finite() && dt_seconds >= 0.0,
+            "simulation timestep must be non-negative and finite"
+        );
+        if dt_seconds == 0.0 {
+            return;
+        }
+
+        let half = self.config.half_extent;
+        let min_center = -self.config.world_extent + half;
+        let max_center = self.config.world_extent - half;
+
+        for entity in &mut self.entities {
+            if entity.motion == MotionKind::Static {
+                continue;
+            }
+
+            let mut center = aabb_center(entity.body.aabb);
+            for axis in 0..3 {
+                center[axis] += entity.velocity[axis] * dt_seconds;
+                if center[axis] < min_center {
+                    center[axis] = min_center;
+                    entity.velocity[axis] = entity.velocity[axis].abs();
+                } else if center[axis] > max_center {
+                    center[axis] = max_center;
+                    entity.velocity[axis] = -entity.velocity[axis].abs();
+                }
+            }
+            entity.body.aabb = Aabb::from_center_half_extents(center, [half; 3]);
+        }
+
+        self.frame = self.frame.saturating_add(1);
     }
 }
 
@@ -166,12 +338,15 @@ pub fn generate_scene(config: Config) -> Vec<Body> {
     (0..config.objects)
         .map(|index| {
             let center = match config.scenario {
-                Scenario::Uniform => random_point(&mut rng, config.world_extent),
-                Scenario::Clustered => clustered_point(&mut rng, config.world_extent),
+                Scenario::Uniform => random_point(&mut rng, config.world_extent - config.half_extent),
+                Scenario::Clustered => clustered_point(
+                    &mut rng,
+                    config.world_extent - config.half_extent,
+                ),
             };
             Body::new(
                 u32::try_from(index).expect("object count was validated"),
-                spatial_kernels::Aabb::from_center_half_extents(center, half),
+                Aabb::from_center_half_extents(center, half),
             )
         })
         .collect()
@@ -222,8 +397,35 @@ pub fn run_experiment(config: Config) -> Experiment {
     }
 }
 
+fn aabb_center(aabb: Aabb) -> [f32; 3] {
+    [
+        (aabb.min[0] + aabb.max[0]) * 0.5,
+        (aabb.min[1] + aabb.max[1]) * 0.5,
+        (aabb.min[2] + aabb.max[2]) * 0.5,
+    ]
+}
+
 fn random_point(rng: &mut SplitMix64, extent: f32) -> [f32; 3] {
     [rng.signed(extent), rng.signed(extent), rng.signed(extent)]
+}
+
+fn random_velocity(rng: &mut SplitMix64, speed: f32) -> [f32; 3] {
+    if speed == 0.0 {
+        return [0.0; 3];
+    }
+
+    let mut direction = [rng.signed(1.0), rng.signed(1.0), rng.signed(1.0)];
+    let length = (direction[0] * direction[0]
+        + direction[1] * direction[1]
+        + direction[2] * direction[2])
+        .sqrt();
+    if length <= f32::EPSILON {
+        return [speed, 0.0, 0.0];
+    }
+    for value in &mut direction {
+        *value = *value / length * speed;
+    }
+    direction
 }
 
 fn clustered_point(rng: &mut SplitMix64, extent: f32) -> [f32; 3] {
@@ -240,9 +442,9 @@ fn clustered_point(rng: &mut SplitMix64, extent: f32) -> [f32; 3] {
     let center = CENTERS[(rng.next_u64() as usize) % CENTERS.len()];
     let jitter = extent * 0.08;
     [
-        center[0] * extent + rng.signed(jitter),
-        center[1] * extent + rng.signed(jitter),
-        center[2] * extent + rng.signed(jitter),
+        (center[0] * extent + rng.signed(jitter)).clamp(-extent, extent),
+        (center[1] * extent + rng.signed(jitter)).clamp(-extent, extent),
+        (center[2] * extent + rng.signed(jitter)).clamp(-extent, extent),
     ]
 }
 
@@ -289,6 +491,78 @@ mod tests {
     }
 
     #[test]
+    fn mixed_motion_generation_is_deterministic() {
+        let config = Config {
+            objects: 64,
+            seed: 123,
+            ..Config::default()
+        };
+        let motion = MotionConfig {
+            dynamic_fraction: 0.5,
+            speed: 3.0,
+        };
+        let left = Simulation::new(config, motion);
+        let right = Simulation::new(config, motion);
+        assert_eq!(left.entities(), right.entities());
+        assert_eq!(left.counts(), right.counts());
+    }
+
+    #[test]
+    fn static_entities_do_not_move_while_dynamic_entities_do() {
+        let config = Config {
+            objects: 32,
+            seed: 9,
+            world_extent: 100.0,
+            ..Config::default()
+        };
+        let mut simulation = Simulation::new(
+            config,
+            MotionConfig {
+                dynamic_fraction: 0.5,
+                speed: 4.0,
+            },
+        );
+        let before = simulation.entities().to_vec();
+        simulation.step(0.25);
+        let after = simulation.entities();
+
+        for (before, after) in before.iter().zip(after) {
+            if before.motion == MotionKind::Static {
+                assert_eq!(before.body, after.body);
+            } else {
+                assert_ne!(before.body, after.body);
+            }
+        }
+    }
+
+    #[test]
+    fn moving_entities_remain_inside_world_bounds() {
+        let config = Config {
+            objects: 24,
+            seed: 19,
+            world_extent: 5.0,
+            half_extent: 0.75,
+            ..Config::default()
+        };
+        let mut simulation = Simulation::new(
+            config,
+            MotionConfig {
+                dynamic_fraction: 1.0,
+                speed: 12.0,
+            },
+        );
+        for _ in 0..200 {
+            simulation.step(1.0 / 30.0);
+            for entity in simulation.entities() {
+                for axis in 0..3 {
+                    assert!(entity.body.aabb.min[axis] >= -config.world_extent);
+                    assert!(entity.body.aabb.max[axis] <= config.world_extent);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn every_broad_phase_matches_naive_on_generated_scenes() {
         for scenario in [Scenario::Uniform, Scenario::Clustered] {
             let experiment = run_experiment(Config {
@@ -303,6 +577,26 @@ mod tests {
                 "scenario {}",
                 scenario.as_str()
             );
+        }
+    }
+
+    #[test]
+    fn broad_phases_match_during_motion() {
+        let config = Config {
+            objects: 128,
+            seed: 73,
+            cell_size: 3.0,
+            scenario: Scenario::Clustered,
+            ..Config::default()
+        };
+        let mut simulation = Simulation::new(config, MotionConfig::default());
+        for _ in 0..20 {
+            simulation.step(1.0 / 30.0);
+            let bodies = simulation.bodies();
+            let expected = run_algorithm(Algorithm::Naive, config, &bodies).pairs;
+            for algorithm in Algorithm::ALL.into_iter().skip(1) {
+                assert_eq!(run_algorithm(algorithm, config, &bodies).pairs, expected);
+            }
         }
     }
 
