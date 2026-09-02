@@ -1,4 +1,5 @@
 use bvh_kernels::{DynamicAabbNodeSnapshot, DynamicAabbTree, DynamicAabbUpdateTrace};
+use bvh_trace_kernels::{StaticBvhNodeSnapshot, trace_static_bvh};
 use collision_lab::{
     Algorithm, CollisionLayer, Config, InteractionConfig, MotionConfig, MotionKind, Scenario,
     Simulation, run_algorithm,
@@ -373,6 +374,34 @@ fn trace_json(simulation: &Simulation, algorithm: Algorithm) -> Result<String, J
                 "steps": steps,
             })
         }
+        Algorithm::StaticBvh => {
+            let trace = trace_static_bvh(&bodies);
+            let steps: Vec<_> = trace
+                .steps
+                .iter()
+                .map(|step| {
+                    json!({
+                        "left": step.left,
+                        "right": step.right,
+                        "kind": step.kind.as_str(),
+                        "potentialPairs": step.potential_pairs,
+                        "pair": step.pair.map(|pair| [pair.a, pair.b]),
+                        "overlap": step.overlap,
+                    })
+                })
+                .collect();
+            json!({
+                "kind": "static-bvh",
+                "frame": simulation.frame(),
+                "aabbTests": trace.result.stats.aabb_tests,
+                "nodePairVisits": trace.node_pair_visits,
+                "prunedPotentialPairs": trace.pruned_potential_pairs,
+                "representedPairs": trace.represented_pair_count(),
+                "root": trace.root,
+                "nodes": trace.nodes.iter().map(static_bvh_node_json).collect::<Vec<_>>(),
+                "steps": steps,
+            })
+        }
         _ => json!({
             "kind": "unsupported",
             "frame": simulation.frame(),
@@ -450,6 +479,19 @@ fn dynamic_node_json(node: &DynamicAabbNodeSnapshot) -> Value {
         "parent": node.parent,
         "left": node.left,
         "right": node.right,
+        "isRoot": node.is_root,
+    })
+}
+
+fn static_bvh_node_json(node: &StaticBvhNodeSnapshot) -> Value {
+    json!({
+        "index": node.index,
+        "bounds": aabb_json(node.bounds),
+        "depth": node.depth,
+        "body": node.body,
+        "left": node.left,
+        "right": node.right,
+        "leafCount": node.leaf_count,
         "isRoot": node.is_root,
     })
 }

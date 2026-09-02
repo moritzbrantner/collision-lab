@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { ExplanationMode } from "../../components/explanation-mode";
+import { StaticBvhExplanation } from "../../components/static-bvh-explanation";
 
 export default function ExplainPage() {
   return (
@@ -25,7 +26,7 @@ export default function ExplainPage() {
           Understand the idea before scaling it up.
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-zinc-400">
-          The full playground is useful for experiments, but hundreds of moving boxes can hide the core idea. This mode keeps the same six objects and walks through each broad phase one decision at a time.
+          Start with a handful of labeled objects and walk through each decision. The first lessons compare flat broad phases on one shared scene; hierarchy lessons then get their own deliberately sparse scenes so pruning is visually unmistakable.
         </p>
       </div>
 
@@ -33,11 +34,22 @@ export default function ExplainPage() {
         <ExplanationMode />
       </div>
 
+      <div className="mt-14">
+        <div className="mb-6 max-w-3xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Next concept · Hierarchies</p>
+          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">Static BVH: reject groups, not objects.</h2>
+          <p className="mt-3 leading-7 text-zinc-500">
+            This lesson switches to eight sparse objects because the important idea is hierarchical: a single parent-bound test can prove that several descendant pairs are impossible. Step through the actual Rust traversal below; orange node frames mark a whole-subtree rejection.
+          </p>
+        </div>
+        <StaticBvhExplanation />
+      </div>
+
       <section className="mt-12 grid gap-4 md:grid-cols-3">
         {[
-          ["Same scene", "The objects do not move when you switch algorithms, so differences in work are easy to compare."],
-          ["Rust-backed", "Overlap results and optimized execution traces come from the same Rust/WASM kernels as experiment mode."],
-          ["Deliberately small", "Six labeled rectangles are enough to expose candidate generation, rejection, and pruning without visual noise."],
+          ["Purpose-built scenes", "Flat algorithms share one six-object comparison scene; hierarchy lessons use tiny scenes chosen to expose pruning clearly."],
+          ["Rust-backed", "Overlap results, memberships, active sets, BVH nodes, and traversal decisions come from the same Rust/WASM kernels used elsewhere."],
+          ["One idea at a time", "Explanation mode deliberately trades scale for clarity; the Experiment and Analysis modes handle realistic workloads."],
         ].map(([title, copy]) => (
           <div key={title} className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
             <h2 className="font-semibold text-zinc-200">{title}</h2>
