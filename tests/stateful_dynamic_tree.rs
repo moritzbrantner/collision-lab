@@ -28,16 +28,34 @@ fn retained_dynamic_tree_matches_snapshot_oracle_through_motion() {
 
     let mut saw_contained_update = false;
     let mut saw_reinsertion = false;
+    let mut saw_structural_trace = false;
     for _ in 0..180 {
         simulation.step(1.0 / 30.0);
-        for entity in simulation
+        let moving: Vec<_> = simulation
             .entities()
             .iter()
             .filter(|entity| entity.motion == MotionKind::Dynamic)
-        {
-            let trace = tree.update_with_trace(entity.body);
-            saw_reinsertion |= trace.reinserted;
-            saw_contained_update |= !trace.reinserted;
+            .map(|entity| entity.body)
+            .collect();
+        let focus_id = moving
+            .iter()
+            .find(|body| {
+                tree.fat_bounds(body.id)
+                    .is_some_and(|fat| !fat.contains(body.aabb))
+            })
+            .map(|body| body.id)
+            .or_else(|| moving.first().map(|body| body.id));
+
+        for body in moving {
+            let reinserted = if focus_id == Some(body.id) {
+                let trace = tree.update_with_trace(body);
+                saw_structural_trace |= !trace.changed_nodes.is_empty();
+                trace.reinserted
+            } else {
+                tree.update(body)
+            };
+            saw_reinsertion |= reinserted;
+            saw_contained_update |= !reinserted;
         }
 
         let bodies = simulation.bodies();
@@ -49,4 +67,5 @@ fn retained_dynamic_tree_matches_snapshot_oracle_through_motion() {
 
     assert!(saw_contained_update, "fat AABBs should absorb some movement");
     assert!(saw_reinsertion, "some bodies should eventually leave their fat AABBs");
+    assert!(saw_structural_trace, "representative updates should produce a trace");
 }
