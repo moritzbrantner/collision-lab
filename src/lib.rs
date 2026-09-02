@@ -211,12 +211,13 @@ impl InteractionConfig {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CollisionLayer(u32);
 
 impl CollisionLayer {
     pub const WORLD: Self = Self(1 << 0);
     pub const ACTOR: Self = Self(1 << 1);
+    pub const ALL: [Self; 2] = [Self::WORLD, Self::ACTOR];
 
     #[must_use]
     pub const fn from_bits(bits: u32) -> Self {
@@ -233,6 +234,11 @@ impl CollisionLayer {
     }
 
     #[must_use]
+    pub const fn index(self) -> usize {
+        self.0.trailing_zeros() as usize
+    }
+
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self.0 {
             1 => "world",
@@ -242,43 +248,49 @@ impl CollisionLayer {
     }
 }
 
+/// World-level policy describing which collision-layer pairs are eligible to
+/// interact. Pair toggles are symmetric: enabling A×B also enables B×A.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CollisionMask(u32);
+pub struct InteractionMatrix {
+    rows: [u32; 32],
+}
 
-impl CollisionMask {
-    pub const NONE: Self = Self(0);
-
-    #[must_use]
-    pub const fn from_bits(bits: u32) -> Self {
-        Self(bits)
-    }
-
-    #[must_use]
-    pub const fn bits(self) -> u32 {
-        self.0
-    }
-
-    #[must_use]
-    pub const fn allows(self, layer: CollisionLayer) -> bool {
-        self.0 & layer.bits() != 0
+impl Default for InteractionMatrix {
+    fn default() -> Self {
+        let mut matrix = Self::empty();
+        matrix.set(CollisionLayer::WORLD, CollisionLayer::ACTOR, true);
+        matrix.set(CollisionLayer::ACTOR, CollisionLayer::ACTOR, true);
+        matrix
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct InteractionFilter {
-    pub layer: CollisionLayer,
-    pub mask: CollisionMask,
-}
-
-impl InteractionFilter {
+impl InteractionMatrix {
     #[must_use]
-    pub const fn new(layer: CollisionLayer, mask: CollisionMask) -> Self {
-        Self { layer, mask }
+    pub const fn empty() -> Self {
+        Self { rows: [0; 32] }
     }
 
     #[must_use]
-    pub const fn can_interact(self, other: Self) -> bool {
-        self.mask.allows(other.layer) && other.mask.allows(self.layer)
+    pub fn allows(&self, left: CollisionLayer, right: CollisionLayer) -> bool {
+        self.rows[left.index()] & right.bits() != 0
+    }
+
+    pub fn set(&mut self, left: CollisionLayer, right: CollisionLayer, allowed: bool) {
+        set_row_bit(&mut self.rows[left.index()], right, allowed);
+        set_row_bit(&mut self.rows[right.index()], left, allowed);
+    }
+
+    #[must_use]
+    pub const fn row_bits(&self, layer: CollisionLayer) -> u32 {
+        self.rows[layer.index()]
+    }
+}
+
+fn set_row_bit(row: &mut u32, layer: CollisionLayer, allowed: bool) {
+    if allowed {
+        *row |= layer.bits();
+    } else {
+        *row &= !layer.bits();
     }
 }
 
@@ -287,7 +299,7 @@ pub struct SceneEntity {
     pub body: Body,
     pub motion: MotionKind,
     pub interaction: InteractionKind,
-    pub filter: InteractionFilter,
+    pub layer: CollisionLayer,
     pub velocity: [f32; 3],
 }
 
@@ -296,6 +308,7 @@ pub struct Simulation {
     config: Config,
     motion_config: MotionConfig,
     interaction_config: InteractionConfig,
+    interaction_matrix: InteractionMatrix,
     entities: Vec<SceneEntity>,
     frame: u64,
 }
@@ -306,6 +319,21 @@ impl Simulation {
         config: Config,
         motion_config: MotionConfig,
         interaction_config: InteractionConfig,
+    ) -> Self {
+        Self::with_matrix(
+            config,
+            motion_config,
+            interaction_config,
+            InteractionMatrix::default(),
+        )
+    }
+
+    #[must_use]
+    pub fn with_matrix(
+        config: Config,
+        motion_config: MotionConfig,
+        interaction_config: InteractionConfig,
+        interaction_matrix: InteractionMatrix,
     ) -> Self {
         let config = config
             .validate()
@@ -334,7 +362,7 @@ impl Simulation {
                 } else {
                     InteractionKind::Solid
                 };
-                let filter = default_filter(motion);
+                let layer = default_layer(motion);
                 let velocity = if is_dynamic {
                     random_velocity(&mut motion_rng, motion_config.speed)
                 } else {
@@ -344,7 +372,7 @@ impl Simulation {
                     body,
                     motion,
                     interaction,
-                    filter,
+                    layer,
                     velocity,
                 }
             })
@@ -354,6 +382,7 @@ impl Simulation {
             config,
             motion_config,
             interaction_config,
+            interaction_matrix,
             entities,
             frame: 0,
         }
@@ -377,6 +406,20 @@ impl Simulation {
     #[must_use]
     pub const fn interaction_config(&self) -> InteractionConfig {
         self.interaction_config
+    }
+
+    #[must_use]
+    pub const fn interaction_matrix(&self) -> InteractionMatrix {
+        self.interaction_matrix
+    }
+
+    pub fn set_layer_interaction(
+        &mut self,
+        left: CollisionLayer,
+        right: CollisionLayer,
+        allowed: bool,
+    ) {
+        self.interaction_matrix.set(left, right, allowed);
     }
 
     #[must_use]
@@ -407,6 +450,16 @@ impl Simulation {
             .filter(|entity| entity.interaction == InteractionKind::Sensor)
             .count();
         (self.entities.len() - sensors, sensors)
+    }
+
+    #[must_use]
+    pub fn interactions(&self, algorithm: Algorithm) -> InteractionResult {
+        run_interactions(
+            algorithm,
+            self.config,
+            &self.entities,
+            &self.interaction_matrix,
+        )
     }
 
     pub fn step(&mut self, dt_seconds: f32) {
@@ -537,6 +590,7 @@ pub fn run_interactions(
     algorithm: Algorithm,
     config: Config,
     entities: &[SceneEntity],
+    matrix: &InteractionMatrix,
 ) -> InteractionResult {
     let bodies: Vec<_> = entities.iter().map(|entity| entity.body).collect();
     let broad_phase = run_algorithm(algorithm, config, &bodies);
@@ -562,7 +616,7 @@ pub fn run_interactions(
         let right = by_id
             .get(&pair.b)
             .expect("broad-phase pair must reference a scene entity");
-        if !left.filter.can_interact(right.filter) {
+        if !matrix.allows(left.layer, right.layer) {
             filtered_out += 1;
             continue;
         }
@@ -612,16 +666,10 @@ pub fn run_experiment(config: Config) -> Experiment {
     }
 }
 
-fn default_filter(motion: MotionKind) -> InteractionFilter {
+fn default_layer(motion: MotionKind) -> CollisionLayer {
     match motion {
-        MotionKind::Static => InteractionFilter::new(
-            CollisionLayer::WORLD,
-            CollisionMask::from_bits(CollisionLayer::ACTOR.bits()),
-        ),
-        MotionKind::Dynamic => InteractionFilter::new(
-            CollisionLayer::ACTOR,
-            CollisionMask::from_bits(CollisionLayer::WORLD.bits() | CollisionLayer::ACTOR.bits()),
-        ),
+        MotionKind::Static => CollisionLayer::WORLD,
+        MotionKind::Dynamic => CollisionLayer::ACTOR,
     }
 }
 
@@ -712,13 +760,13 @@ mod tests {
         center: [f32; 3],
         motion: MotionKind,
         interaction: InteractionKind,
-        filter: InteractionFilter,
+        layer: CollisionLayer,
     ) -> SceneEntity {
         SceneEntity {
             body: Body::new(id, Aabb::from_center_half_extents(center, [1.0; 3])),
             motion,
             interaction,
-            filter,
+            layer,
             velocity: [0.0; 3],
         }
     }
@@ -752,6 +800,7 @@ mod tests {
         assert_eq!(left.entities(), right.entities());
         assert_eq!(left.counts(), right.counts());
         assert_eq!(left.interaction_counts(), right.interaction_counts());
+        assert_eq!(left.interaction_matrix(), right.interaction_matrix());
     }
 
     #[test]
@@ -781,7 +830,7 @@ mod tests {
                 assert_ne!(before.body, after.body);
             }
             assert_eq!(before.interaction, after.interaction);
-            assert_eq!(before.filter, after.filter);
+            assert_eq!(before.layer, after.layer);
         }
     }
 
@@ -814,68 +863,109 @@ mod tests {
     }
 
     #[test]
-    fn default_layer_matrix_rejects_world_world_but_allows_actor_pairs() {
-        let world = default_filter(MotionKind::Static);
-        let actor = default_filter(MotionKind::Dynamic);
-        assert!(!world.can_interact(world));
-        assert!(world.can_interact(actor));
-        assert!(actor.can_interact(world));
-        assert!(actor.can_interact(actor));
+    fn default_interaction_matrix_matches_world_actor_policy() {
+        let matrix = InteractionMatrix::default();
+        assert!(!matrix.allows(CollisionLayer::WORLD, CollisionLayer::WORLD));
+        assert!(matrix.allows(CollisionLayer::WORLD, CollisionLayer::ACTOR));
+        assert!(matrix.allows(CollisionLayer::ACTOR, CollisionLayer::WORLD));
+        assert!(matrix.allows(CollisionLayer::ACTOR, CollisionLayer::ACTOR));
+    }
+
+    #[test]
+    fn interaction_matrix_updates_are_symmetric() {
+        let projectile = CollisionLayer::from_bits(1 << 2);
+        let mut matrix = InteractionMatrix::empty();
+        matrix.set(CollisionLayer::ACTOR, projectile, true);
+        assert!(matrix.allows(CollisionLayer::ACTOR, projectile));
+        assert!(matrix.allows(projectile, CollisionLayer::ACTOR));
+        matrix.set(projectile, CollisionLayer::ACTOR, false);
+        assert!(!matrix.allows(CollisionLayer::ACTOR, projectile));
+        assert!(!matrix.allows(projectile, CollisionLayer::ACTOR));
     }
 
     #[test]
     fn interaction_kind_is_orthogonal_to_layer_filtering() {
-        let actor_filter = default_filter(MotionKind::Dynamic);
         let solid = entity(
             1,
             [0.0; 3],
             MotionKind::Dynamic,
             InteractionKind::Solid,
-            actor_filter,
+            CollisionLayer::ACTOR,
         );
         let sensor = entity(
             2,
             [0.5, 0.0, 0.0],
             MotionKind::Dynamic,
             InteractionKind::Sensor,
-            actor_filter,
+            CollisionLayer::ACTOR,
         );
-        let result = run_interactions(Algorithm::Naive, Config::default(), &[solid, sensor]);
+        let matrix = InteractionMatrix::default();
+        let result = run_interactions(
+            Algorithm::Naive,
+            Config::default(),
+            &[solid, sensor],
+            &matrix,
+        );
         assert_eq!(result.pairs, vec![Pair::new(1, 2)]);
         assert_eq!(result.sensor_pairs, vec![Pair::new(1, 2)]);
     }
 
     #[test]
     fn interaction_matrix_filters_overlapping_world_pairs() {
-        let world_filter = default_filter(MotionKind::Static);
-        let actor_filter = default_filter(MotionKind::Dynamic);
         let entities = [
             entity(
                 1,
                 [0.0; 3],
                 MotionKind::Static,
                 InteractionKind::Solid,
-                world_filter,
+                CollisionLayer::WORLD,
             ),
             entity(
                 2,
                 [0.5, 0.0, 0.0],
                 MotionKind::Static,
                 InteractionKind::Solid,
-                world_filter,
+                CollisionLayer::WORLD,
             ),
             entity(
                 3,
                 [0.25, 0.0, 0.0],
                 MotionKind::Dynamic,
                 InteractionKind::Solid,
-                actor_filter,
+                CollisionLayer::ACTOR,
             ),
         ];
-        let result = run_interactions(Algorithm::Naive, Config::default(), &entities);
+        let matrix = InteractionMatrix::default();
+        let result = run_interactions(Algorithm::Naive, Config::default(), &entities, &matrix);
         assert_eq!(result.broad_phase.pairs.len(), 3);
         assert_eq!(result.filtered_out, 1);
         assert_eq!(result.pairs, vec![Pair::new(1, 3), Pair::new(2, 3)]);
+    }
+
+    #[test]
+    fn custom_world_matrix_changes_interactions_without_changing_entities() {
+        let entities = [
+            entity(
+                1,
+                [0.0; 3],
+                MotionKind::Static,
+                InteractionKind::Solid,
+                CollisionLayer::WORLD,
+            ),
+            entity(
+                2,
+                [0.5, 0.0, 0.0],
+                MotionKind::Static,
+                InteractionKind::Solid,
+                CollisionLayer::WORLD,
+            ),
+        ];
+        let mut matrix = InteractionMatrix::default();
+        let before = run_interactions(Algorithm::Naive, Config::default(), &entities, &matrix);
+        assert!(before.pairs.is_empty());
+        matrix.set(CollisionLayer::WORLD, CollisionLayer::WORLD, true);
+        let after = run_interactions(Algorithm::Naive, Config::default(), &entities, &matrix);
+        assert_eq!(after.pairs, vec![Pair::new(1, 2)]);
     }
 
     #[test]
@@ -936,9 +1026,9 @@ mod tests {
         );
         for _ in 0..10 {
             simulation.step(1.0 / 30.0);
-            let expected = run_interactions(Algorithm::Naive, config, simulation.entities());
+            let expected = simulation.interactions(Algorithm::Naive);
             for algorithm in Algorithm::ALL.into_iter().skip(1) {
-                let actual = run_interactions(algorithm, config, simulation.entities());
+                let actual = simulation.interactions(algorithm);
                 assert_eq!(actual.pairs, expected.pairs, "algorithm {algorithm:?}");
                 assert_eq!(
                     actual.sensor_pairs, expected.sensor_pairs,
@@ -946,6 +1036,29 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn simulation_matrix_can_change_without_regenerating_scene() {
+        let config = Config {
+            objects: 64,
+            seed: 1001,
+            scenario: Scenario::Clustered,
+            ..Config::default()
+        };
+        let mut simulation = Simulation::new(
+            config,
+            MotionConfig::default(),
+            InteractionConfig::default(),
+        );
+        let before_entities = simulation.entities().to_vec();
+        simulation.set_layer_interaction(CollisionLayer::WORLD, CollisionLayer::WORLD, true);
+        assert_eq!(simulation.entities(), before_entities);
+        assert!(
+            simulation
+                .interaction_matrix()
+                .allows(CollisionLayer::WORLD, CollisionLayer::WORLD)
+        );
     }
 
     #[test]
