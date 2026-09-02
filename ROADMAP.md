@@ -4,14 +4,15 @@ Collision Lab is an interactive laboratory for learning, comparing, testing, and
 
 ## Principles
 
-1. **Rust is the source of truth.** Collision algorithms, traces, and deterministic scene behavior live in Rust. WebAssembly exposes them to the browser. React/Three.js/SVG are presentation layers.
+1. **Rust is the source of truth.** Collision algorithms, traces, deterministic scene behavior, and measured work counters live in Rust. WebAssembly exposes them to the browser. React/Three.js/SVG are presentation layers.
 2. **Correctness before performance.** Optimized algorithms are differential-tested against simple reference implementations and must preserve exact pair-set parity.
 3. **Keep dimensions orthogonal.** Motion, interaction meaning, collision layers, runtime state, and geometry are separate concepts rather than one cross-product enum.
 4. **Explain before simulating everything.** The lab should make an algorithm understandable with a handful of objects before showing it running against hundreds or thousands.
 5. **Tracing is optional.** Debug/explanation APIs may allocate and expose internal structure, but normal kernel consumers should not pay that cost.
-6. **Prefer reusable kernels.** General algorithms and data structures belong in `rust-kernels`; scenario generation, semantic interaction policy, experiments, and teaching UX belong in `collision-lab`.
+6. **Prefer reusable kernels.** General algorithms and data structures belong in `rust-kernels`; scenario generation, semantic interaction policy, experiments, analysis, and teaching UX belong in `collision-lab`.
+7. **Visual helpers represent real data structures.** Grid cells, sweep planes, hierarchy boxes, fat AABBs, traversal nodes, and similar helpers should come from the actual Rust algorithm state rather than decorative reimplementations.
 
-## Two complementary modes
+## Three complementary modes
 
 ### Explanation mode
 
@@ -32,12 +33,13 @@ Current explanation sequence:
 3. ✅ **Sweep-and-prune** — show X intervals, the sweep line, the active set, expirations, and which full AABB tests remain.
 4. ⏭️ **Static BVH** — show node-pair traversal and make whole-subtree pruning visually obvious.
 5. ⏭️ **Dynamic AABB tree** — show exact AABB versus fat AABB, contained movement, reinsertion, and structural changes.
+6. ⏭️ **Octree** — use a small 2D quadtree-style projection first, then relate it to the eight-child 3D octree shown in Experiment mode.
 
 Later explanation scenes should cover adversarial cases: bad grid cell size, clustered objects, elongated objects, everything overlapping, and fast-moving objects.
 
 ### Experiment mode
 
-The existing 3D Rust/WASM/Three.js playground remains the realistic laboratory.
+The 3D Rust/WASM/Three.js playground is the realistic laboratory.
 
 - Hundreds or thousands of objects.
 - Static and dynamic motion.
@@ -47,8 +49,38 @@ The existing 3D Rust/WASM/Three.js playground remains the realistic laboratory.
 - Broad-phase metrics and exact pair parity.
 - Pause-and-inspect execution traces.
 - Workload controls for density, speed, grid size, fat margin, and scene distribution.
+- Independently toggleable scene layers for bodies, interaction links, sensors, and algorithm helpers.
+- Bright, readable ordinary bodies even when they are not colliding or trace-active.
+- Real helper geometry including grid structure, sweep plane, dynamic-tree fat bounds/changed nodes, and octree subdivision boxes.
 
-Explanation mode should teach *why* an algorithm works. Experiment mode should reveal *when* it works well.
+Experiment mode should reveal *what the data structure is doing* and *when it works well*.
+
+### Analysis mode
+
+The analytical chapter compares algorithms over controlled deterministic workloads.
+
+Implemented baseline:
+
+- Rust/WASM measurements rather than browser rendering timings.
+- Object counts `50, 100, 250, 500, 1000`.
+- Uniform and clustered distributions.
+- World volume grows with object count to keep average density roughly stable.
+- Exact AABB-test counts, possible-pair counts, and percentage of pair tests avoided.
+- A log-scale scaling chart plus exact measured table.
+- Naive all-pairs remains visible as the O(n²) reference curve.
+- Uniform grid, octree, sweep-and-prune, static BVH, and dynamic AABB tree are compared on the same deterministic world snapshot.
+
+Analysis should answer *how the algorithms scale*, *which workload properties matter*, and *where crossovers happen* without pretending Big-O alone predicts a concrete winner.
+
+Next analytical additions:
+
+- named adversarial workloads and side-by-side distributions;
+- structure metrics such as tree height, node count, memberships, reinsertions, and active-set size;
+- native Rust benchmark artifacts independently from WASM/browser execution;
+- memory/allocation measurements;
+- automatic crossover detection between algorithms;
+- workload sweeps for grid cell size, octree capacity/depth, and dynamic-tree fat margin;
+- native-vs-WASM comparisons where the boundary itself is worth measuring.
 
 ## Broad-phase roadmap
 
@@ -56,25 +88,30 @@ Explanation mode should teach *why* an algorithm works. Experiment mode should r
 
 - Naive O(n²) oracle.
 - Uniform grid / spatial hash semantics.
+- **Octree** with configurable capacity/depth, global candidate deduplication, and deterministic node snapshots.
 - Sweep-and-prune.
 - Static BVH.
 - Dynamic AABB tree with fat AABBs and balancing.
 - Deterministic execution traces for uniform grid and sweep-and-prune.
 - Stateful dynamic-tree update tracing with retained fat bounds and reinsertion visibility.
+- Octree hierarchy helpers: root cube, eight emphasized depth-1 children, and muted deeper subdivisions.
 - Static/dynamic scene entities and deterministic motion.
 - `InteractionKind::{Solid, Sensor}`.
 - World-owned `InteractionMatrix` with live browser editing.
 - Distinct solid and sensor interaction visualization.
-- Homepage split between 2D Explanation mode and 3D Experiment mode.
+- Improved ordinary-object legibility and independent helper/body/link visibility controls.
+- Homepage split between Explanation, Experiment, and Analysis.
 - Simplified six-object 2D explanations for naive all-pairs, uniform grid, and sweep-and-prune.
+- Rust-backed scaling Analysis for all current broad phases.
 
 ### Next
 
 1. Finish static-BVH traversal/pruning trace and add it to both 3D inspection and 2D Explanation mode.
 2. Add a dynamic-AABB-tree 2D teaching preset using the retained-tree trace.
-3. Add richer named educational presets rather than only random scene generation.
-4. Add multi-axis / temporally coherent sweep-and-prune experiments.
-5. Add more adversarial broad-phase workloads and side-by-side comparison views.
+3. Add an Octree/Quadtree explanation lesson that connects 2D subdivision to the eight-child 3D helper.
+4. Add richer named educational and analytical presets rather than only random scene generation.
+5. Add multi-axis / temporally coherent sweep-and-prune experiments.
+6. Add more spatial structures where they teach a genuinely different tradeoff: loose octree, k-d tree/static partitioning, or another evidence-driven candidate rather than near-duplicates.
 
 ## Narrow-phase roadmap
 
@@ -89,10 +126,11 @@ Once broad-phase explanation coverage is coherent, begin geometry tests in incre
 7. Contact manifolds for stable multi-point contacts.
 8. Triangle and mesh queries accelerated by BVHs.
 
-Each major narrow-phase algorithm should receive both modes:
+Each major narrow-phase algorithm should receive all relevant views:
 
 - a tiny 2D/diagrammatic explanation where possible;
-- a 3D experiment using the actual Rust implementation.
+- a 3D experiment using the actual Rust implementation;
+- an analytical treatment showing assumptions, operation counts, failure cases, and measured tradeoffs where meaningful.
 
 GJK deserves an especially detailed step-through view showing the Minkowski difference and simplex evolution: point → line → triangle → tetrahedron → origin enclosed.
 
@@ -146,12 +184,12 @@ These should not contaminate reusable collision kernels that do not need physics
 
 ## Educational UX roadmap
 
-- Shareable URLs encoding algorithm + preset + step.
+- Shareable URLs encoding mode + algorithm + preset + step.
 - Side-by-side “naive versus optimized” views.
 - Small equations and complexity counters that update with object count.
-- Hover/click inspection for individual objects and candidate pairs.
+- Hover/click inspection for individual objects, candidates, helper nodes, and pair rejection reasons.
 - Presets named after the concept they teach, not arbitrary seeds.
-- A glossary linking AABB, broad phase, narrow phase, candidate pair, fat AABB, support mapping, Minkowski difference, contact manifold, and related terms.
+- A glossary linking AABB, broad phase, narrow phase, candidate pair, fat AABB, octree, BVH, support mapping, Minkowski difference, contact manifold, and related terms.
 - Keyboard stepping for explanation traces.
 - Optional annotations explaining *why this pair was rejected*.
 
@@ -170,6 +208,7 @@ These should not contaminate reusable collision kernels that do not need physics
 Collision Lab should continue dogfooding reusable spatial kernels rather than growing private copies. Candidates that become sufficiently general should live in or graduate to `rust-kernels`, including:
 
 - spatial hashes and grids;
+- octrees and other hierarchical spatial partitions;
 - sweep structures;
 - BVHs and dynamic AABB trees;
 - rays and intersection primitives;
