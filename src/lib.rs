@@ -275,13 +275,13 @@ impl Simulation {
             }
 
             let mut center = aabb_center(entity.body.aabb);
-            for axis in 0..3 {
-                center[axis] += entity.velocity[axis] * dt_seconds;
-                if center[axis] < min_center {
-                    center[axis] = min_center;
+            for (axis, coordinate) in center.iter_mut().enumerate() {
+                *coordinate += entity.velocity[axis] * dt_seconds;
+                if *coordinate < min_center {
+                    *coordinate = min_center;
                     entity.velocity[axis] = entity.velocity[axis].abs();
-                } else if center[axis] > max_center {
-                    center[axis] = max_center;
+                } else if *coordinate > max_center {
+                    *coordinate = max_center;
                     entity.velocity[axis] = -entity.velocity[axis].abs();
                 }
             }
