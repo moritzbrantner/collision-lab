@@ -148,6 +148,7 @@ type AlgorithmTrace = GridTrace | SweepTrace | DynamicTreeTrace | UnsupportedTra
 
 type RenderResources = {
   scene: THREE.Scene;
+  helperGroup: THREE.Group;
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
   controls: OrbitControls;
@@ -195,6 +196,10 @@ export function InteractiveCollisionDemo({
   const [speed, setSpeed] = useState(8);
   const [seed, setSeed] = useState(42);
   const [isPlaying, setIsPlaying] = useState(true);
+  const [showBodies, setShowBodies] = useState(true);
+  const [showSolidLinks, setShowSolidLinks] = useState(true);
+  const [showSensorOverlays, setShowSensorOverlays] = useState(true);
+  const [showHelpers, setShowHelpers] = useState(true);
   const [snapshot, setSnapshot] = useState<DemoSnapshot | null>(null);
   const [trace, setTrace] = useState<AlgorithmTrace | null>(null);
   const [traceStepIndex, setTraceStepIndex] = useState(0);
@@ -344,7 +349,7 @@ export function InteractiveCollisionDemo({
     if (!mount) return;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x09090b);
+    scene.background = new THREE.Color(0x0c0d10);
 
     const width = Math.max(mount.clientWidth, 320);
     const height = Math.max(mount.clientHeight, 420);
@@ -362,19 +367,23 @@ export function InteractiveCollisionDemo({
 
     scene.add(new THREE.AmbientLight(0xffffff, 1.5));
     scene.add(new THREE.AxesHelper(8));
-    scene.add(
+
+    const helperGroup = new THREE.Group();
+    helperGroup.name = "algorithm-helpers";
+    scene.add(helperGroup);
+    helperGroup.add(
       new THREE.Box3Helper(
         new THREE.Box3(
           new THREE.Vector3(-worldExtent, -worldExtent, -worldExtent),
           new THREE.Vector3(worldExtent, worldExtent, worldExtent),
         ),
-        0x3f3f46,
+        0x71717a,
       ),
     );
 
     if (algorithm === "uniform-grid") {
       const divisions = Math.max(4, Math.min(40, Math.round((worldExtent * 2) / cellSize)));
-      scene.add(new THREE.GridHelper(worldExtent * 2, divisions, 0x71717a, 0x27272a));
+      helperGroup.add(new THREE.GridHelper(worldExtent * 2, divisions, 0xa1a1aa, 0x3f3f46));
     }
 
     let sweepPlane: THREE.Mesh | null = null;
@@ -383,15 +392,22 @@ export function InteractiveCollisionDemo({
       const sweepMaterial = new THREE.MeshBasicMaterial({
         color: 0x60a5fa,
         transparent: true,
-        opacity: 0.12,
+        opacity: 0.2,
+        depthWrite: false,
+        side: THREE.DoubleSide,
       });
       sweepPlane = new THREE.Mesh(sweepGeometry, sweepMaterial);
-      scene.add(sweepPlane);
+      helperGroup.add(sweepPlane);
     }
 
     const bodyMesh = new THREE.InstancedMesh(
       new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshBasicMaterial({ wireframe: true, vertexColors: true }),
+      new THREE.MeshBasicMaterial({
+        wireframe: true,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.92,
+      }),
       objects,
     );
     bodyMesh.count = 0;
@@ -401,10 +417,10 @@ export function InteractiveCollisionDemo({
     const sensorMesh = new THREE.InstancedMesh(
       new THREE.BoxGeometry(1, 1, 1),
       new THREE.MeshBasicMaterial({
-        color: 0xe879f9,
+        color: 0xf0abfc,
         wireframe: true,
         transparent: true,
-        opacity: 0.65,
+        opacity: 0.8,
       }),
       objects,
     );
@@ -417,34 +433,34 @@ export function InteractiveCollisionDemo({
       fatMesh = new THREE.InstancedMesh(
         new THREE.BoxGeometry(1, 1, 1),
         new THREE.MeshBasicMaterial({
-          color: 0xa78bfa,
+          color: 0xc4b5fd,
           wireframe: true,
           transparent: true,
-          opacity: 0.18,
+          opacity: 0.35,
         }),
         objects,
       );
       fatMesh.count = 0;
-      scene.add(fatMesh);
+      helperGroup.add(fatMesh);
     }
 
     const pairLines = new THREE.LineSegments(
       new THREE.BufferGeometry(),
-      new THREE.LineBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.45 }),
+      new THREE.LineBasicMaterial({ color: 0xfb7185, transparent: true, opacity: 0.6 }),
     );
     scene.add(pairLines);
 
     const sensorPairLines = new THREE.LineSegments(
       new THREE.BufferGeometry(),
-      new THREE.LineBasicMaterial({ color: 0xe879f9, transparent: true, opacity: 0.8 }),
+      new THREE.LineBasicMaterial({ color: 0xf0abfc, transparent: true, opacity: 0.9 }),
     );
     scene.add(sensorPairLines);
 
     const tracePairLines = new THREE.LineSegments(
       new THREE.BufferGeometry(),
-      new THREE.LineBasicMaterial({ color: 0xfacc15, transparent: true, opacity: 0.9 }),
+      new THREE.LineBasicMaterial({ color: 0xfacc15, transparent: true, opacity: 0.95 }),
     );
-    scene.add(tracePairLines);
+    helperGroup.add(tracePairLines);
 
     let animationFrame = 0;
     const render = () => {
@@ -466,6 +482,7 @@ export function InteractiveCollisionDemo({
 
     renderRef.current = {
       scene,
+      helperGroup,
       camera,
       renderer,
       controls,
@@ -506,16 +523,26 @@ export function InteractiveCollisionDemo({
 
   useEffect(() => {
     const resources = renderRef.current;
+    if (!resources) return;
+    resources.bodyMesh.visible = showBodies;
+    resources.pairLines.visible = showSolidLinks;
+    resources.sensorMesh.visible = showSensorOverlays;
+    resources.sensorPairLines.visible = showSensorOverlays;
+    resources.helperGroup.visible = showHelpers;
+  }, [showBodies, showHelpers, showSensorOverlays, showSolidLinks]);
+
+  useEffect(() => {
+    const resources = renderRef.current;
     if (!resources || !snapshot) return;
 
     const matrix = new THREE.Matrix4();
     const position = new THREE.Vector3();
     const scale = new THREE.Vector3();
     const quaternion = new THREE.Quaternion();
-    const staticColor = new THREE.Color(0x71717a);
-    const dynamicColor = new THREE.Color(0x22d3ee);
-    const collisionColor = new THREE.Color(0xf87171);
-    const activeColor = new THREE.Color(0xa78bfa);
+    const staticColor = new THREE.Color(0xe4e4e7);
+    const dynamicColor = new THREE.Color(0x67e8f9);
+    const collisionColor = new THREE.Color(0xfb7185);
+    const activeColor = new THREE.Color(0xc4b5fd);
     const currentColor = new THREE.Color(0xfacc15);
     const centers = new Map<number, THREE.Vector3>();
 
@@ -585,10 +612,10 @@ export function InteractiveCollisionDemo({
     if (!resources) return;
 
     if (resources.traceCellHelper) {
-      disposeBoxHelper(resources.scene, resources.traceCellHelper);
+      disposeBoxHelper(resources.helperGroup, resources.traceCellHelper);
       resources.traceCellHelper = null;
     }
-    resources.dynamicTraceHelpers.forEach((helper) => disposeBoxHelper(resources.scene, helper));
+    resources.dynamicTraceHelpers.forEach((helper) => disposeBoxHelper(resources.helperGroup, helper));
     resources.dynamicTraceHelpers = [];
 
     if (trace?.kind === "uniform-grid" && currentTraceStep) {
@@ -601,7 +628,7 @@ export function InteractiveCollisionDemo({
         ),
         0xfacc15,
       );
-      resources.scene.add(helper);
+      resources.helperGroup.add(helper);
       resources.traceCellHelper = helper;
     }
 
@@ -620,7 +647,7 @@ export function InteractiveCollisionDemo({
       const color = trace.focus.reinserted ? 0xfb923c : 0x4ade80;
       for (const node of changedNodes) {
         const helper = boundsHelper(node.bounds, color);
-        resources.scene.add(helper);
+        resources.helperGroup.add(helper);
         resources.dynamicTraceHelpers.push(helper);
       }
     }
@@ -725,12 +752,22 @@ export function InteractiveCollisionDemo({
             Regenerate · seed {seed}
           </button>
 
-          <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 text-xs text-zinc-500">
-            <Legend colorClass="bg-zinc-500" label="Static" />
-            <Legend colorClass="bg-cyan-400" label="Dynamic" />
-            <Legend colorClass="bg-red-400" label="Solid interaction" />
-            <Legend colorClass="bg-fuchsia-400" label="Sensor / sensor interaction" />
-            <Legend colorClass="bg-violet-400" label="Fat AABB / trace active" />
+          <div className="mt-5 rounded-xl border border-zinc-800 bg-zinc-900/35 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">Scene layers</p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <LayerToggle label="Bodies" checked={showBodies} onChange={setShowBodies} />
+              <LayerToggle label="Helpers" checked={showHelpers} onChange={setShowHelpers} />
+              <LayerToggle label="Solid links" checked={showSolidLinks} onChange={setShowSolidLinks} />
+              <LayerToggle label="Sensors" checked={showSensorOverlays} onChange={setShowSensorOverlays} />
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 text-xs text-zinc-400">
+            <Legend colorClass="bg-zinc-200" label="Static" />
+            <Legend colorClass="bg-cyan-300" label="Dynamic" />
+            <Legend colorClass="bg-rose-400" label="Solid interaction" />
+            <Legend colorClass="bg-fuchsia-300" label="Sensor / sensor interaction" />
+            <Legend colorClass="bg-violet-300" label="Fat AABB / trace active" />
             <Legend colorClass="bg-yellow-400" label="Trace current" />
           </div>
 
@@ -951,6 +988,20 @@ function Control({ label, min, max, step, value, onChange }: { label: string; mi
   );
 }
 
+function LayerToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs font-medium text-zinc-300">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="h-4 w-4 accent-zinc-100"
+      />
+      {label}
+    </label>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
@@ -1046,8 +1097,8 @@ function boundsHelper(bounds: Bounds, color: number) {
   );
 }
 
-function disposeBoxHelper(scene: THREE.Scene, helper: THREE.Box3Helper) {
-  scene.remove(helper);
+function disposeBoxHelper(parent: THREE.Object3D, helper: THREE.Box3Helper) {
+  parent.remove(helper);
   helper.geometry.dispose();
   const material = helper.material;
   if (Array.isArray(material)) material.forEach((entry) => entry.dispose());
