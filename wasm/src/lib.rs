@@ -2,9 +2,7 @@ use collision_lab::{
     Algorithm, Config, MotionConfig, MotionKind, Scenario, Simulation, run_algorithm,
 };
 use serde_json::{Value, json};
-use spatial_kernels::{
-    Axis3, Pair, SweepAndPruneBroadPhase, UniformGridBroadPhase,
-};
+use spatial_kernels::{Axis3, Pair, SweepAndPruneBroadPhase, UniformGridBroadPhase};
 use wasm_bindgen::prelude::*;
 
 const TRACE_PAIR_PREVIEW_LIMIT: usize = 32;
