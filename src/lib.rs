@@ -220,7 +220,10 @@ impl CollisionLayer {
 
     #[must_use]
     pub const fn from_bits(bits: u32) -> Self {
-        assert!(bits.is_power_of_two(), "a collision layer must contain exactly one bit");
+        assert!(
+            bits.is_power_of_two(),
+            "a collision layer must contain exactly one bit"
+        );
         Self(bits)
     }
 
@@ -325,7 +328,8 @@ impl Simulation {
                 } else {
                     MotionKind::Static
                 };
-                let interaction = if interaction_rng.unit_f32() < interaction_config.sensor_fraction {
+                let interaction = if interaction_rng.unit_f32() < interaction_config.sensor_fraction
+                {
                     InteractionKind::Sensor
                 } else {
                     InteractionKind::Solid
