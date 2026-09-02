@@ -33,6 +33,8 @@ fn main() {
     println!("possible pairs: {}", experiment.possible_pairs);
     println!("cell size:      {:.3}", config.cell_size);
     println!("fat margin:     {:.3}", config.fat_margin);
+    println!("world extent:   {:.3}", config.world_extent);
+    println!("half extent:    {:.3}", config.half_extent);
     println!("seed:           {}", config.seed);
     println!();
     println!(
@@ -55,7 +57,7 @@ fn main() {
         );
     }
     println!();
-    println!("pair-set parity: verified across all algorithms");
+    println!("pair-set parity:       verified");
 }
 
 fn parse_config(args: Vec<String>) -> Result<Config, String> {
