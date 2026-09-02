@@ -25,10 +25,10 @@ export default function ComputePage() {
       <div className="mt-10 max-w-4xl">
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Compute</p>
         <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-50 sm:text-6xl">
-          Hold the algorithm constant. Change the machine underneath it.
+          Change the algorithm. Change the machine. Measure both.
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-zinc-400">
-          Analysis asks which broad-phase algorithm organizes work best. Compute asks a different question: when does the same collision workload benefit from thousands of parallel GPU invocations instead of Rust/WASM on the CPU?
+          Algorithm choice and execution architecture are independent axes. Compare naive all-pairs and uniform-grid broad phases on Rust/WASM and WebGPU to see where pruning beats parallelism, where parallelism amplifies a good algorithm, and where transfer or synchronization costs erase a fast shader.
         </p>
       </div>
 
