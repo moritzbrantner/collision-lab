@@ -18,6 +18,7 @@ const CUSTOM_RUN: &[&str] = &[
 const ALGORITHM_ROWS: &[&str] = &[
     "naive ",
     "uniform-grid ",
+    "octree ",
     "sweep-and-prune ",
     "static-bvh ",
     "dynamic-aabb-tree ",

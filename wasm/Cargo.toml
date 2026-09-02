@@ -9,8 +9,9 @@ rust-version = "1.85"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-bvh-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "c068683669468b73dd3c27a7549437519e52693f" }
+bvh-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "bdb0ab3e7eeb130b022becf070102016119d6627" }
 collision-lab = { path = ".." }
+octree-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "bdb0ab3e7eeb130b022becf070102016119d6627" }
 serde_json = "1"
-spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "c068683669468b73dd3c27a7549437519e52693f" }
+spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "bdb0ab3e7eeb130b022becf070102016119d6627" }
 wasm-bindgen = "0.2"

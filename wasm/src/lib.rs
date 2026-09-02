@@ -3,6 +3,7 @@ use collision_lab::{
     Algorithm, CollisionLayer, Config, InteractionConfig, MotionConfig, MotionKind, Scenario,
     Simulation, run_algorithm,
 };
+use octree_kernels::{OctreeBroadPhase, OctreeNodeSnapshot};
 use serde_json::{Value, json};
 use spatial_kernels::{Aabb, Axis3, Pair, SweepAndPruneBroadPhase, UniformGridBroadPhase};
 use wasm_bindgen::prelude::*;
@@ -331,6 +332,18 @@ fn trace_json(simulation: &Simulation, algorithm: Algorithm) -> Result<String, J
                 "steps": cells,
             })
         }
+        Algorithm::Octree => {
+            let trace = OctreeBroadPhase::default().trace(&bodies);
+            json!({
+                "kind": "octree",
+                "frame": simulation.frame(),
+                "aabbTests": trace.result.stats.aabb_tests,
+                "root": trace.root,
+                "leafCount": trace.leaf_count,
+                "occupiedLeafCount": trace.occupied_leaf_count,
+                "nodes": trace.nodes.iter().map(octree_node_json).collect::<Vec<_>>(),
+            })
+        }
         Algorithm::SweepAndPrune => {
             let trace = SweepAndPruneBroadPhase::new(Axis3::X).trace(&bodies);
             let steps: Vec<_> = trace
@@ -438,6 +451,17 @@ fn dynamic_node_json(node: &DynamicAabbNodeSnapshot) -> Value {
         "left": node.left,
         "right": node.right,
         "isRoot": node.is_root,
+    })
+}
+
+fn octree_node_json(node: &OctreeNodeSnapshot) -> Value {
+    json!({
+        "index": node.index,
+        "bounds": aabb_json(node.bounds),
+        "depth": node.depth,
+        "members": node.members,
+        "children": node.children,
+        "isLeaf": node.is_leaf(),
     })
 }
 

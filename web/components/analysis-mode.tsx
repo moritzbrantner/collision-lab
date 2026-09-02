@@ -7,6 +7,7 @@ import initWasm, { DemoWorld } from "../lib/wasm-pkg/collision_wasm";
 type AlgorithmId =
   | "naive"
   | "uniform-grid"
+  | "octree"
   | "sweep-and-prune"
   | "static-bvh"
   | "dynamic-aabb-tree";
@@ -37,6 +38,7 @@ const COUNTS = [50, 100, 250, 500, 1000] as const;
 const ALGORITHMS: { id: AlgorithmId; label: string; complexity: string; stroke: string }[] = [
   { id: "naive", label: "Naive", complexity: "O(n²)", stroke: "#a1a1aa" },
   { id: "uniform-grid", label: "Uniform grid", complexity: "≈ O(n + k)", stroke: "#22d3ee" },
+  { id: "octree", label: "Octree", complexity: "distribution-dependent", stroke: "#34d399" },
   { id: "sweep-and-prune", label: "Sweep & prune", complexity: "O(n log n + k)", stroke: "#facc15" },
   { id: "static-bvh", label: "Static BVH", complexity: "hierarchy-dependent", stroke: "#a78bfa" },
   { id: "dynamic-aabb-tree", label: "Dynamic AABB tree", complexity: "update/query-dependent", stroke: "#fb7185" },
@@ -183,7 +185,7 @@ export function AnalysisMode() {
           </p>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-[58rem] w-full text-left text-sm">
+          <table className="min-w-[64rem] w-full text-left text-sm">
             <thead className="bg-zinc-900/50 text-xs uppercase tracking-wide text-zinc-600">
               <tr>
                 <th className="px-5 py-3">Objects</th>
@@ -217,7 +219,7 @@ export function AnalysisMode() {
       <section className="grid gap-4 md:grid-cols-3">
         <AnalysisNote
           title="Big-O is not the whole story"
-          copy="Uniform grids, sweeps, and trees all exploit different structure. Distribution, object size, temporal coherence, and tuning determine how much work survives before the exact overlap test."
+          copy="Uniform grids, octrees, sweeps, and BVH-style trees exploit different structure. Distribution, object size, temporal coherence, and tuning determine how much work survives before the exact overlap test."
         />
         <AnalysisNote
           title="The oracle stays visible"
