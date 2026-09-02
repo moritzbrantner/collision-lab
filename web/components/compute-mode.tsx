@@ -212,8 +212,8 @@ export function ComputeMode() {
           />
           <MetricCard
             label="GPU pass timing"
-            value={gpuSetup ? (gpuSetup.timestampSupported ? "timestamp query" : "wall clock") : "—"}
-            detail="Hardware/driver pass timestamps are used when the adapter exposes timestamp-query."
+            value={gpuSetup ? (gpuSetup.timestampSupported ? "timestamp query" : "unavailable") : "—"}
+            detail="Pass-only timing requires the adapter's timestamp-query feature; end-to-end GPU timing remains available without it."
           />
           <MetricCard
             label="First GPU win"
