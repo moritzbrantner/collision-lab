@@ -10,21 +10,26 @@ export default function HomePage() {
         <div className="max-w-3xl">
           <p className="mb-4 text-sm font-semibold uppercase tracking-[0.22em] text-zinc-500">Collision detection, made inspectable</p>
           <h1 className="text-4xl font-semibold tracking-tight text-zinc-50 sm:text-6xl">
-            Learn what each broad-phase algorithm actually does.
+            Learn the idea in 2D. Stress it in 3D.
           </h1>
           <p className="mt-6 text-lg leading-8 text-zinc-400">
-            Collision Lab pairs deterministic Rust experiments with visual explanations. Every optimized algorithm must match the same correctness oracle before performance comparisons matter.
+            Collision Lab pairs deterministic Rust experiments with visual explanations. Start with six labeled rectangles and step through the algorithm, then switch to the full Rust/WASM playground to see how it behaves at scale.
           </p>
-          <Link href="/demo/" className="mt-8 inline-flex rounded-xl bg-zinc-100 px-5 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-white">
-            Open the live Rust/WASM playground →
-          </Link>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Link href="/explain/" className="inline-flex rounded-xl bg-zinc-100 px-5 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-white">
+              Start with 2D explanation mode →
+            </Link>
+            <Link href="/demo/" className="inline-flex rounded-xl border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100">
+              Open the 3D experiment lab
+            </Link>
+          </div>
         </div>
 
         <div className="mt-12 grid gap-4 sm:grid-cols-3">
           {[
             [String(algorithms.length), "broad-phase implementations"],
             ["exact", "pair-set parity required"],
-            ["WASM", "same Rust kernels in the browser"],
+            ["2D + 3D", "explanation and experiment modes"],
           ].map(([value, label]) => (
             <div key={label} className="rounded-2xl border border-zinc-800 bg-zinc-900/45 p-5">
               <div className="text-xl font-semibold text-zinc-100">{value}</div>
@@ -34,14 +39,31 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="algorithms" className="mx-auto max-w-6xl px-6 pb-20">
+      <section className="border-y border-zinc-800 bg-zinc-900/25">
+        <div className="mx-auto grid max-w-6xl gap-6 px-6 py-12 md:grid-cols-2">
+          <Link href="/explain/" className="group rounded-3xl border border-zinc-800 bg-zinc-950/70 p-7 transition hover:border-zinc-600">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Explanation mode</p>
+            <h2 className="mt-3 text-2xl font-semibold text-zinc-100">Few objects. One idea at a time.</h2>
+            <p className="mt-3 leading-7 text-zinc-500">Use a fixed 2D teaching scene, labels, stepping, active sets, cells, and rejected pairs to understand why an algorithm works.</p>
+            <span className="mt-5 inline-flex text-sm font-semibold text-zinc-300 transition group-hover:text-white">Learn in 2D →</span>
+          </Link>
+          <Link href="/demo/" className="group rounded-3xl border border-zinc-800 bg-zinc-950/70 p-7 transition hover:border-zinc-600">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Experiment mode</p>
+            <h2 className="mt-3 text-2xl font-semibold text-zinc-100">Moving worlds and real workload tradeoffs.</h2>
+            <p className="mt-3 leading-7 text-zinc-500">Run Rust kernels through WASM against moving 3D scenes, interaction matrices, sensors, retained trees, and algorithm traces.</p>
+            <span className="mt-5 inline-flex text-sm font-semibold text-zinc-300 transition group-hover:text-white">Experiment in 3D →</span>
+          </Link>
+        </div>
+      </section>
+
+      <section id="algorithms" className="mx-auto max-w-6xl px-6 py-20">
         <div className="mb-8 flex items-end justify-between gap-6">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Algorithm catalog</p>
             <h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">Current implementations</h2>
           </div>
           <p className="hidden max-w-md text-right text-sm leading-6 text-zinc-500 md:block">
-            Each page explains the algorithm; the live playground runs the same Rust implementation through WebAssembly.
+            Each page explains the algorithm; the interactive modes run the same Rust concepts through WebAssembly.
           </p>
         </div>
 
@@ -73,7 +95,7 @@ export default function HomePage() {
           <h2 className="text-2xl font-semibold text-zinc-100">How the lab evaluates an algorithm</h2>
           <div className="mt-8 grid gap-4 md:grid-cols-4">
             {[
-              ["01", "Generate", "Create the same seeded 3D AABB scene."],
+              ["01", "Generate", "Create a deterministic scene or a named teaching preset."],
               ["02", "Oracle", "Run the simple naive implementation."],
               ["03", "Candidate", "Run each optimized broad phase."],
               ["04", "Verify", "Require exact sorted pair-set parity, then compare work."],
