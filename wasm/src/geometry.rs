@@ -1,6 +1,4 @@
-use geometry_kernels::{
-    Obb2, Sphere, aabb_aabb, obb2_sat, sphere_sphere,
-};
+use geometry_kernels::{Obb2, Sphere, aabb_aabb, obb2_sat, sphere_sphere};
 use serde_json::json;
 use spatial_kernels::Aabb;
 use wasm_bindgen::prelude::*;
