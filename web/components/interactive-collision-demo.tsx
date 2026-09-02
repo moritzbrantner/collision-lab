@@ -107,8 +107,10 @@ type RenderResources = {
   renderer: THREE.WebGLRenderer;
   controls: OrbitControls;
   bodyMesh: THREE.InstancedMesh;
+  sensorMesh: THREE.InstancedMesh;
   fatMesh: THREE.InstancedMesh | null;
   pairLines: THREE.LineSegments;
+  sensorPairLines: THREE.LineSegments;
   tracePairLines: THREE.LineSegments;
   sweepPlane: THREE.Mesh | null;
   traceCellHelper: THREE.Box3Helper | null;
@@ -125,6 +127,7 @@ const ALGORITHMS: { value: AlgorithmId; label: string }[] = [
 ];
 
 const FIXED_TIMESTEP_SECONDS = 1 / 30;
+const SENSOR_OUTLINE_PADDING = 0.22;
 
 export function InteractiveCollisionDemo({
   initialAlgorithm = "uniform-grid",
@@ -141,6 +144,7 @@ export function InteractiveCollisionDemo({
   const [cellSize, setCellSize] = useState(4);
   const [fatMargin, setFatMargin] = useState(1.5);
   const [dynamicFraction, setDynamicFraction] = useState(0.35);
+  const [sensorFraction, setSensorFraction] = useState(0.15);
   const [speed, setSpeed] = useState(8);
   const [seed, setSeed] = useState(42);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -181,6 +185,7 @@ export function InteractiveCollisionDemo({
         halfExtent,
         dynamicFraction,
         speed,
+        sensorFraction,
       );
       worldRef.current = world;
       setSnapshot(JSON.parse(world.snapshot_json(algorithm)) as DemoSnapshot);
@@ -195,7 +200,17 @@ export function InteractiveCollisionDemo({
     };
     // Switching broad phases should inspect the same world instead of recreating it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wasmReady, scenario, objects, cellSize, fatMargin, seed, dynamicFraction, speed]);
+  }, [
+    wasmReady,
+    scenario,
+    objects,
+    cellSize,
+    fatMargin,
+    seed,
+    dynamicFraction,
+    sensorFraction,
+    speed,
+  ]);
 
   useEffect(() => {
     const world = worldRef.current;
@@ -334,6 +349,20 @@ export function InteractiveCollisionDemo({
     bodyMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     scene.add(bodyMesh);
 
+    const sensorMesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshBasicMaterial({
+        color: 0xe879f9,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.65,
+      }),
+      objects,
+    );
+    sensorMesh.count = 0;
+    sensorMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(sensorMesh);
+
     let fatMesh: THREE.InstancedMesh | null = null;
     if (algorithm === "dynamic-aabb-tree") {
       fatMesh = new THREE.InstancedMesh(
@@ -352,9 +381,15 @@ export function InteractiveCollisionDemo({
 
     const pairLines = new THREE.LineSegments(
       new THREE.BufferGeometry(),
-      new THREE.LineBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.35 }),
+      new THREE.LineBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.45 }),
     );
     scene.add(pairLines);
+
+    const sensorPairLines = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0xe879f9, transparent: true, opacity: 0.8 }),
+    );
+    scene.add(sensorPairLines);
 
     const tracePairLines = new THREE.LineSegments(
       new THREE.BufferGeometry(),
@@ -386,8 +421,10 @@ export function InteractiveCollisionDemo({
       renderer,
       controls,
       bodyMesh,
+      sensorMesh,
       fatMesh,
       pairLines,
+      sensorPairLines,
       tracePairLines,
       sweepPlane,
       traceCellHelper: null,
@@ -433,6 +470,7 @@ export function InteractiveCollisionDemo({
     const centers = new Map<number, THREE.Vector3>();
 
     resources.bodyMesh.count = snapshot.bodies.length;
+    let sensorIndex = 0;
     snapshot.bodies.forEach((body, index) => {
       position.set(
         (body.min[0] + body.max[0]) * 0.5,
@@ -454,9 +492,22 @@ export function InteractiveCollisionDemo({
       if (traceFocus.current.has(body.id)) color = currentColor;
       resources.bodyMesh.setColorAt(index, color);
       centers.set(body.id, position.clone());
+
+      if (body.interaction === "sensor") {
+        scale.set(
+          body.max[0] - body.min[0] + SENSOR_OUTLINE_PADDING,
+          body.max[1] - body.min[1] + SENSOR_OUTLINE_PADDING,
+          body.max[2] - body.min[2] + SENSOR_OUTLINE_PADDING,
+        );
+        matrix.compose(position, quaternion, scale);
+        resources.sensorMesh.setMatrixAt(sensorIndex, matrix);
+        sensorIndex += 1;
+      }
     });
     resources.bodyMesh.instanceMatrix.needsUpdate = true;
     if (resources.bodyMesh.instanceColor) resources.bodyMesh.instanceColor.needsUpdate = true;
+    resources.sensorMesh.count = sensorIndex;
+    resources.sensorMesh.instanceMatrix.needsUpdate = true;
 
     if (resources.fatMesh) {
       resources.fatMesh.count = snapshot.bodies.length;
@@ -477,7 +528,10 @@ export function InteractiveCollisionDemo({
       resources.fatMesh.instanceMatrix.needsUpdate = true;
     }
 
-    replaceLineGeometry(resources.pairLines, snapshot.pairs.slice(0, 1500), centers);
+    const sensorKeys = new Set(snapshot.sensorPairs.map(pairKey));
+    const solidPairs = snapshot.pairs.filter((pair) => !sensorKeys.has(pairKey(pair)));
+    replaceLineGeometry(resources.pairLines, solidPairs.slice(0, 1500), centers);
+    replaceLineGeometry(resources.sensorPairLines, snapshot.sensorPairs.slice(0, 1500), centers);
     replaceLineGeometry(resources.tracePairLines, traceFocus.testedPairs, centers);
   }, [collidingIds, fatMargin, snapshot, traceFocus]);
 
@@ -555,7 +609,7 @@ export function InteractiveCollisionDemo({
           </p>
           <h2 className="mt-2 text-xl font-semibold text-zinc-100">Live collision playground</h2>
           <p className="mt-2 text-sm leading-6 text-zinc-500">
-            Static and dynamic bodies share one Rust world. Spatial algorithms find overlaps; the editable world matrix decides which overlaps become interactions.
+            Motion, interaction meaning, and layer eligibility are independent. Sensor bodies are marked separately and never change how broad-phase geometry is computed.
           </p>
 
           <label className="mt-6 block text-xs font-semibold text-zinc-400">
@@ -585,6 +639,7 @@ export function InteractiveCollisionDemo({
 
           <Control label={`Objects · ${objects}`} min={40} max={600} step={20} value={objects} onChange={setObjects} />
           <Control label={`Moving · ${Math.round(dynamicFraction * 100)}%`} min={0} max={1} step={0.05} value={dynamicFraction} onChange={setDynamicFraction} />
+          <Control label={`Sensors · ${Math.round(sensorFraction * 100)}%`} min={0} max={1} step={0.05} value={sensorFraction} onChange={setSensorFraction} />
           <Control label={`Speed · ${speed.toFixed(1)}`} min={0} max={20} step={0.5} value={speed} onChange={setSpeed} />
           <Control label={`Grid cell · ${cellSize.toFixed(1)}`} min={1} max={12} step={0.5} value={cellSize} onChange={setCellSize} />
           <Control label={`Fat margin · ${fatMargin.toFixed(1)}`} min={0} max={5} step={0.25} value={fatMargin} onChange={setFatMargin} />
@@ -617,7 +672,8 @@ export function InteractiveCollisionDemo({
           <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 text-xs text-zinc-500">
             <Legend colorClass="bg-zinc-500" label="Static" />
             <Legend colorClass="bg-cyan-400" label="Dynamic" />
-            <Legend colorClass="bg-red-400" label="Interaction" />
+            <Legend colorClass="bg-red-400" label="Solid interaction" />
+            <Legend colorClass="bg-fuchsia-400" label="Sensor / sensor interaction" />
             <Legend colorClass="bg-violet-400" label="Trace active" />
             <Legend colorClass="bg-yellow-400" label="Trace current" />
           </div>
@@ -636,6 +692,8 @@ export function InteractiveCollisionDemo({
             <Metric label="Interactions" value={snapshot?.pairs.length.toLocaleString() ?? "—"} />
             <Metric label="Static" value={snapshot?.counts.static.toLocaleString() ?? "—"} />
             <Metric label="Dynamic" value={snapshot?.counts.dynamic.toLocaleString() ?? "—"} />
+            <Metric label="Solid bodies" value={snapshot?.counts.solid.toLocaleString() ?? "—"} />
+            <Metric label="Sensor bodies" value={snapshot?.counts.sensor.toLocaleString() ?? "—"} />
             <Metric label="AABB tests" value={snapshot?.stats.aabbTests.toLocaleString() ?? "—"} />
             <Metric label="Tests avoided" value={snapshot ? `${reduction.toFixed(2)}%` : "—"} />
           </dl>
@@ -824,6 +882,10 @@ function idsFromPairs(pairs: Pair[]) {
     ids.add(b);
   });
   return ids;
+}
+
+function pairKey([a, b]: Pair) {
+  return a < b ? `${a}:${b}` : `${b}:${a}`;
 }
 
 function formatIds(ids: number[]) {
