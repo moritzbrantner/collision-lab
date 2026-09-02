@@ -9,15 +9,39 @@ export default function DemoPage() {
         ← Collision Lab
       </Link>
       <div className="mt-8 max-w-3xl">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Interactive demo</p>
-        <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-50 sm:text-5xl">Run the Rust broad phases in your browser.</h1>
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">
+          Interactive simulation
+        </p>
+        <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-50 sm:text-5xl">
+          Watch Rust broad phases react to a moving world.
+        </h1>
         <p className="mt-5 text-lg leading-8 text-zinc-400">
-          The same deterministic Rust scene generator and collision kernels used by the command-line lab are compiled to WebAssembly. Switch algorithms, change scene density, and inspect the work each broad phase avoids.
+          Mix fixed obstacles with moving bodies, then Play, Pause, or Step through deterministic simulation frames. Motion, world-boundary bounces, scene generation, and collision detection all run in Rust/WASM; Three.js only renders the resulting state.
         </p>
       </div>
       <div className="mt-10">
         <InteractiveCollisionDemo />
       </div>
+      <section className="mt-12 grid gap-4 md:grid-cols-3">
+        <article className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
+          <h2 className="font-semibold text-zinc-200">Static bodies</h2>
+          <p className="mt-2 text-sm leading-6 text-zinc-500">
+            Fixed world geometry does not move between frames. This is the natural home for walls, terrain chunks, buildings, and other persistent obstacles.
+          </p>
+        </article>
+        <article className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
+          <h2 className="font-semibold text-zinc-200">Dynamic bodies</h2>
+          <p className="mt-2 text-sm leading-6 text-zinc-500">
+            Moving AABBs have deterministic velocities and bounce at the world boundary. Their changing neighborhoods make temporal-coherence strategies visible.
+          </p>
+        </article>
+        <article className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
+          <h2 className="font-semibold text-zinc-200">Next: execution traces</h2>
+          <p className="mt-2 text-sm leading-6 text-zinc-500">
+            The next layer will expose grid memberships, sweep active sets, BVH traversal, and dynamic-tree reinsertion events directly from Rust so a paused frame can be inspected algorithm step by algorithm step.
+          </p>
+        </article>
+      </section>
     </main>
   );
 }
