@@ -1,4 +1,8 @@
-use spatial_kernels::{Body, BroadPhase, BroadPhaseResult, NaiveBroadPhase, UniformGridBroadPhase};
+use bvh_kernels::{DynamicAabbTreeBroadPhase, StaticBvhBroadPhase};
+use spatial_kernels::{
+    Body, BroadPhase, BroadPhaseResult, NaiveBroadPhase, SweepAndPruneBroadPhase,
+    UniformGridBroadPhase,
+};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -27,10 +31,52 @@ impl Scenario {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Algorithm {
+    Naive,
+    UniformGrid,
+    SweepAndPrune,
+    StaticBvh,
+    DynamicAabbTree,
+}
+
+impl Algorithm {
+    pub const ALL: [Self; 5] = [
+        Self::Naive,
+        Self::UniformGrid,
+        Self::SweepAndPrune,
+        Self::StaticBvh,
+        Self::DynamicAabbTree,
+    ];
+
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "naive" => Ok(Self::Naive),
+            "uniform-grid" => Ok(Self::UniformGrid),
+            "sweep-and-prune" => Ok(Self::SweepAndPrune),
+            "static-bvh" => Ok(Self::StaticBvh),
+            "dynamic-aabb-tree" => Ok(Self::DynamicAabbTree),
+            other => Err(format!("unknown algorithm `{other}`")),
+        }
+    }
+
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Naive => "naive",
+            Self::UniformGrid => "uniform-grid",
+            Self::SweepAndPrune => "sweep-and-prune",
+            Self::StaticBvh => "static-bvh",
+            Self::DynamicAabbTree => "dynamic-aabb-tree",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Config {
     pub objects: usize,
     pub cell_size: f32,
+    pub fat_margin: f32,
     pub seed: u64,
     pub world_extent: f32,
     pub half_extent: f32,
@@ -42,6 +88,7 @@ impl Default for Config {
         Self {
             objects: 10_000,
             cell_size: 2.5,
+            fat_margin: 0.75,
             seed: 0x0C01_11D3,
             world_extent: 100.0,
             half_extent: 0.5,
@@ -58,6 +105,9 @@ impl Config {
         if !self.cell_size.is_finite() || self.cell_size <= 0.0 {
             return Err("cell size must be positive and finite".to_owned());
         }
+        if !self.fat_margin.is_finite() || self.fat_margin < 0.0 {
+            return Err("fat margin must be non-negative and finite".to_owned());
+        }
         if !self.world_extent.is_finite() || self.world_extent <= 0.0 {
             return Err("world extent must be positive and finite".to_owned());
         }
@@ -70,6 +120,7 @@ impl Config {
 
 #[derive(Clone, Debug)]
 pub struct TimedRun {
+    pub algorithm: Algorithm,
     pub result: BroadPhaseResult,
     pub elapsed: Duration,
 }
@@ -78,23 +129,30 @@ pub struct TimedRun {
 pub struct Experiment {
     pub objects: usize,
     pub possible_pairs: u64,
-    pub naive: TimedRun,
-    pub grid: TimedRun,
+    pub runs: Vec<TimedRun>,
 }
 
 impl Experiment {
     #[must_use]
     pub fn pair_sets_match(&self) -> bool {
-        self.naive.result.pairs == self.grid.result.pairs
+        let Some(reference) = self.runs.first() else {
+            return true;
+        };
+        self.runs
+            .iter()
+            .all(|run| run.result.pairs == reference.result.pairs)
     }
 
     #[must_use]
-    pub fn grid_test_reduction_percent(&self) -> f64 {
-        let baseline = self.naive.result.stats.aabb_tests;
+    pub fn test_reduction_percent(&self, run: &TimedRun) -> f64 {
+        let Some(reference) = self.runs.first() else {
+            return 0.0;
+        };
+        let baseline = reference.result.stats.aabb_tests;
         if baseline == 0 {
             0.0
         } else {
-            100.0 * (1.0 - self.grid.result.stats.aabb_tests as f64 / baseline as f64)
+            100.0 * (1.0 - run.result.stats.aabb_tests as f64 / baseline as f64)
         }
     }
 }
@@ -120,25 +178,39 @@ pub fn generate_scene(config: Config) -> Vec<Body> {
 }
 
 #[must_use]
+pub fn run_algorithm(algorithm: Algorithm, config: Config, bodies: &[Body]) -> BroadPhaseResult {
+    let config = config
+        .validate()
+        .expect("validated experiment configuration");
+    match algorithm {
+        Algorithm::Naive => NaiveBroadPhase.detect(bodies),
+        Algorithm::UniformGrid => UniformGridBroadPhase::new(config.cell_size).detect(bodies),
+        Algorithm::SweepAndPrune => SweepAndPruneBroadPhase::default().detect(bodies),
+        Algorithm::StaticBvh => StaticBvhBroadPhase.detect(bodies),
+        Algorithm::DynamicAabbTree => {
+            DynamicAabbTreeBroadPhase::new(config.fat_margin).detect(bodies)
+        }
+    }
+}
+
+#[must_use]
 pub fn run_experiment(config: Config) -> Experiment {
     let config = config
         .validate()
         .expect("validated experiment configuration");
     let bodies = generate_scene(config);
-
-    let started = Instant::now();
-    let naive_result = NaiveBroadPhase.detect(&bodies);
-    let naive = TimedRun {
-        result: naive_result,
-        elapsed: started.elapsed(),
-    };
-
-    let started = Instant::now();
-    let grid_result = UniformGridBroadPhase::new(config.cell_size).detect(&bodies);
-    let grid = TimedRun {
-        result: grid_result,
-        elapsed: started.elapsed(),
-    };
+    let runs = Algorithm::ALL
+        .into_iter()
+        .map(|algorithm| {
+            let started = Instant::now();
+            let result = run_algorithm(algorithm, config, &bodies);
+            TimedRun {
+                algorithm,
+                result,
+                elapsed: started.elapsed(),
+            }
+        })
+        .collect();
 
     let possible_pairs =
         (config.objects as u64).saturating_mul(config.objects.saturating_sub(1) as u64) / 2;
@@ -146,13 +218,16 @@ pub fn run_experiment(config: Config) -> Experiment {
     Experiment {
         objects: config.objects,
         possible_pairs,
-        naive,
-        grid,
+        runs,
     }
 }
 
 fn random_point(rng: &mut SplitMix64, extent: f32) -> [f32; 3] {
-    [rng.signed(extent), rng.signed(extent), rng.signed(extent)]
+    [
+        rng.signed(extent),
+        rng.signed(extent),
+        rng.signed(extent),
+    ]
 }
 
 fn clustered_point(rng: &mut SplitMix64, extent: f32) -> [f32; 3] {
@@ -218,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    fn uniform_grid_matches_naive_on_generated_scenes() {
+    fn every_broad_phase_matches_naive_on_generated_scenes() {
         for scenario in [Scenario::Uniform, Scenario::Clustered] {
             let experiment = run_experiment(Config {
                 objects: 256,
@@ -236,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn sparse_uniform_scene_reduces_aabb_tests() {
+    fn optimized_algorithms_reduce_work_in_sparse_scene() {
         let experiment = run_experiment(Config {
             objects: 512,
             seed: 99,
@@ -245,6 +320,9 @@ mod tests {
             ..Config::default()
         });
         assert!(experiment.pair_sets_match());
-        assert!(experiment.grid.result.stats.aabb_tests < experiment.naive.result.stats.aabb_tests);
+        let naive_tests = experiment.runs[0].result.stats.aabb_tests;
+        for run in &experiment.runs[1..] {
+            assert!(run.result.stats.aabb_tests < naive_tests, "{:?}", run.algorithm);
+        }
     }
 }
