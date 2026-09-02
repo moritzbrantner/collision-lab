@@ -1,4 +1,5 @@
 use bvh_kernels::{DynamicAabbTreeBroadPhase, StaticBvhBroadPhase};
+use octree_kernels::OctreeBroadPhase;
 use spatial_kernels::{
     Aabb, Body, BroadPhase, BroadPhaseResult, ColliderId, NaiveBroadPhase, Pair,
     SweepAndPruneBroadPhase, UniformGridBroadPhase,
@@ -38,15 +39,17 @@ impl Scenario {
 pub enum Algorithm {
     Naive,
     UniformGrid,
+    Octree,
     SweepAndPrune,
     StaticBvh,
     DynamicAabbTree,
 }
 
 impl Algorithm {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Naive,
         Self::UniformGrid,
+        Self::Octree,
         Self::SweepAndPrune,
         Self::StaticBvh,
         Self::DynamicAabbTree,
@@ -56,6 +59,7 @@ impl Algorithm {
         match value {
             "naive" => Ok(Self::Naive),
             "uniform-grid" => Ok(Self::UniformGrid),
+            "octree" => Ok(Self::Octree),
             "sweep-and-prune" => Ok(Self::SweepAndPrune),
             "static-bvh" => Ok(Self::StaticBvh),
             "dynamic-aabb-tree" => Ok(Self::DynamicAabbTree),
@@ -68,6 +72,7 @@ impl Algorithm {
         match self {
             Self::Naive => "naive",
             Self::UniformGrid => "uniform-grid",
+            Self::Octree => "octree",
             Self::SweepAndPrune => "sweep-and-prune",
             Self::StaticBvh => "static-bvh",
             Self::DynamicAabbTree => "dynamic-aabb-tree",
@@ -577,6 +582,7 @@ pub fn run_algorithm(algorithm: Algorithm, config: Config, bodies: &[Body]) -> B
     match algorithm {
         Algorithm::Naive => NaiveBroadPhase.detect(bodies),
         Algorithm::UniformGrid => UniformGridBroadPhase::new(config.cell_size).detect(bodies),
+        Algorithm::Octree => OctreeBroadPhase::default().detect(bodies),
         Algorithm::SweepAndPrune => SweepAndPruneBroadPhase::default().detect(bodies),
         Algorithm::StaticBvh => StaticBvhBroadPhase.detect(bodies),
         Algorithm::DynamicAabbTree => {
