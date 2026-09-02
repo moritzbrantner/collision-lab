@@ -18,6 +18,25 @@ export function AlgorithmVisual({ slug }: Props) {
     );
   }
 
+  if (slug === "octree") {
+    return (
+      <Frame label="Octree hierarchical subdivision diagram">
+        <rect x="90" y="72" width="460" height="232" fill="none" stroke="#d4d4d8" strokeWidth="2" />
+        <line x1="320" y1="72" x2="320" y2="304" stroke="#22d3ee" strokeWidth="2" />
+        <line x1="90" y1="188" x2="550" y2="188" stroke="#22d3ee" strokeWidth="2" />
+        <line x1="205" y1="72" x2="205" y2="304" stroke="#3f3f46" strokeWidth="1" strokeDasharray="6 6" />
+        <line x1="435" y1="72" x2="435" y2="304" stroke="#3f3f46" strokeWidth="1" strokeDasharray="6 6" />
+        <line x1="90" y1="130" x2="550" y2="130" stroke="#3f3f46" strokeWidth="1" strokeDasharray="6 6" />
+        <line x1="90" y1="246" x2="550" y2="246" stroke="#3f3f46" strokeWidth="1" strokeDasharray="6 6" />
+        <rect x="120" y="96" width="68" height="50" rx="9" fill="#27272a" stroke="#fafafa" strokeWidth="2" />
+        <rect x="250" y="150" width="92" height="70" rx="9" fill="#3f3f46" stroke="#d4d4d8" strokeWidth="2" />
+        <rect x="410" y="225" width="70" height="48" rx="9" fill="#27272a" stroke="#a1a1aa" strokeWidth="2" />
+        <text x="32" y="40" fill="#a1a1aa" fontSize="15">Crowded regions subdivide into eight smaller cubes</text>
+        <text x="462" y="94" fill="#22d3ee" fontSize="12">depth 1</text>
+      </Frame>
+    );
+  }
+
   if (slug === "sweep-and-prune") {
     return (
       <Frame label="Sweep and prune interval diagram">
