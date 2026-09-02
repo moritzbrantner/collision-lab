@@ -7,20 +7,23 @@ export default function HomePage() {
   return (
     <main>
       <section className="mx-auto max-w-6xl px-6 py-20 sm:py-28">
-        <div className="max-w-3xl">
+        <div className="max-w-4xl">
           <p className="mb-4 text-sm font-semibold uppercase tracking-[0.22em] text-zinc-500">Collision detection, made inspectable</p>
           <h1 className="text-4xl font-semibold tracking-tight text-zinc-50 sm:text-6xl">
-            Learn the idea in 2D. Stress it in 3D.
+            Learn it. Stress it. Analyze it.
           </h1>
-          <p className="mt-6 text-lg leading-8 text-zinc-400">
-            Collision Lab pairs deterministic Rust experiments with visual explanations. Start with six labeled rectangles and step through the algorithm, then switch to the full Rust/WASM playground to see how it behaves at scale.
+          <p className="mt-6 max-w-3xl text-lg leading-8 text-zinc-400">
+            Collision Lab uses the same deterministic Rust kernels in three complementary ways: tiny 2D explanations, moving 3D experiments, and measured scaling analysis.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link href="/explain/" className="inline-flex rounded-xl bg-zinc-100 px-5 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-white">
-              Start with 2D explanation mode →
+              Learn in 2D →
             </Link>
             <Link href="/demo/" className="inline-flex rounded-xl border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100">
-              Open the 3D experiment lab
+              Experiment in 3D
+            </Link>
+            <Link href="/analysis/" className="inline-flex rounded-xl border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100">
+              Analyze scaling
             </Link>
           </div>
         </div>
@@ -29,7 +32,7 @@ export default function HomePage() {
           {[
             [String(algorithms.length), "broad-phase implementations"],
             ["exact", "pair-set parity required"],
-            ["2D + 3D", "explanation and experiment modes"],
+            ["3 modes", "explanation · experiment · analysis"],
           ].map(([value, label]) => (
             <div key={label} className="rounded-2xl border border-zinc-800 bg-zinc-900/45 p-5">
               <div className="text-xl font-semibold text-zinc-100">{value}</div>
@@ -40,19 +43,28 @@ export default function HomePage() {
       </section>
 
       <section className="border-y border-zinc-800 bg-zinc-900/25">
-        <div className="mx-auto grid max-w-6xl gap-6 px-6 py-12 md:grid-cols-2">
-          <Link href="/explain/" className="group rounded-3xl border border-zinc-800 bg-zinc-950/70 p-7 transition hover:border-zinc-600">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Explanation mode</p>
-            <h2 className="mt-3 text-2xl font-semibold text-zinc-100">Few objects. One idea at a time.</h2>
-            <p className="mt-3 leading-7 text-zinc-500">Use a fixed 2D teaching scene, labels, stepping, active sets, cells, and rejected pairs to understand why an algorithm works.</p>
-            <span className="mt-5 inline-flex text-sm font-semibold text-zinc-300 transition group-hover:text-white">Learn in 2D →</span>
-          </Link>
-          <Link href="/demo/" className="group rounded-3xl border border-zinc-800 bg-zinc-950/70 p-7 transition hover:border-zinc-600">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Experiment mode</p>
-            <h2 className="mt-3 text-2xl font-semibold text-zinc-100">Moving worlds and real workload tradeoffs.</h2>
-            <p className="mt-3 leading-7 text-zinc-500">Run Rust kernels through WASM against moving 3D scenes, interaction matrices, sensors, retained trees, and algorithm traces.</p>
-            <span className="mt-5 inline-flex text-sm font-semibold text-zinc-300 transition group-hover:text-white">Experiment in 3D →</span>
-          </Link>
+        <div className="mx-auto grid max-w-6xl gap-6 px-6 py-12 lg:grid-cols-3">
+          <ModeCard
+            href="/explain/"
+            eyebrow="Explanation"
+            title="Few objects. One idea at a time."
+            copy="Use a fixed 2D teaching scene, labels, stepping, active sets, cells, and rejected pairs to understand why an algorithm works."
+            action="Learn in 2D →"
+          />
+          <ModeCard
+            href="/demo/"
+            eyebrow="Experiment"
+            title="Moving worlds and visible data structures."
+            copy="Run Rust kernels through WASM against moving 3D scenes, interaction matrices, sensors, retained trees, and algorithm helper geometry."
+            action="Experiment in 3D →"
+          />
+          <ModeCard
+            href="/analysis/"
+            eyebrow="Analysis"
+            title="Compare scaling and workload tradeoffs."
+            copy="Measure exact AABB work across growing deterministic scenes and compare theoretical complexity with what the real implementations actually do."
+            action="Analyze the algorithms →"
+          />
         </div>
       </section>
 
@@ -63,7 +75,7 @@ export default function HomePage() {
             <h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">Current implementations</h2>
           </div>
           <p className="hidden max-w-md text-right text-sm leading-6 text-zinc-500 md:block">
-            Each page explains the algorithm; the interactive modes run the same Rust concepts through WebAssembly.
+            Each page explains the algorithm; all three modes exercise the same Rust concepts through WebAssembly.
           </p>
         </div>
 
@@ -110,5 +122,16 @@ export default function HomePage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function ModeCard({ href, eyebrow, title, copy, action }: { href: string; eyebrow: string; title: string; copy: string; action: string }) {
+  return (
+    <Link href={href} className="group rounded-3xl border border-zinc-800 bg-zinc-950/70 p-7 transition hover:border-zinc-600">
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">{eyebrow}</p>
+      <h2 className="mt-3 text-2xl font-semibold text-zinc-100">{title}</h2>
+      <p className="mt-3 leading-7 text-zinc-500">{copy}</p>
+      <span className="mt-5 inline-flex text-sm font-semibold text-zinc-300 transition group-hover:text-white">{action}</span>
+    </Link>
   );
 }

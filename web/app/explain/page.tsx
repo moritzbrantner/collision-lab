@@ -9,9 +9,14 @@ export default function ExplainPage() {
         <Link href="/" className="text-sm text-zinc-500 transition hover:text-zinc-200">
           ← Collision Lab
         </Link>
-        <Link href="/demo/" className="rounded-full border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100">
-          Switch to 3D experiment mode →
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/demo/" className="rounded-full border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100">
+            Experiment
+          </Link>
+          <Link href="/analysis/" className="rounded-full border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100">
+            Analysis
+          </Link>
+        </div>
       </div>
 
       <div className="mt-10 max-w-4xl">
