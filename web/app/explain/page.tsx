@@ -39,7 +39,7 @@ export default function ExplainPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Next concept · Hierarchies</p>
           <h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">Static BVH: reject groups, not objects.</h2>
           <p className="mt-3 leading-7 text-zinc-500">
-            This lesson switches to eight sparse objects because the important idea is hierarchical: a single parent-bound test can prove that several descendant pairs are impossible. Step through the actual Rust traversal below.
+            This lesson switches to eight sparse objects because the important idea is hierarchical: a single parent-bound test can prove that several descendant pairs are impossible. Step through the actual Rust traversal below; orange node frames mark a whole-subtree rejection.
           </p>
         </div>
         <StaticBvhExplanation />
