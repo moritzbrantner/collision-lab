@@ -1,5 +1,5 @@
 use collision_lab::{
-    Algorithm, Config, InteractionConfig, MotionConfig, Scenario, Simulation, run_interactions,
+    Algorithm, CollisionLayer, Config, InteractionConfig, MotionConfig, Scenario, Simulation,
 };
 use serde_json::{Value, json};
 use spatial_kernels::{Axis3, Pair, SweepAndPruneBroadPhase, UniformGridBroadPhase};
@@ -63,6 +63,23 @@ impl DemoWorld {
     pub fn trace_json(&self, algorithm: &str) -> Result<String, JsValue> {
         trace_json(&self.simulation, algorithm)
     }
+
+    pub fn interaction_matrix_json(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&matrix_json(&self.simulation))
+            .map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
+    pub fn set_layer_interaction(
+        &mut self,
+        left_bits: u32,
+        right_bits: u32,
+        allowed: bool,
+    ) -> Result<(), JsValue> {
+        let left = layer_from_bits(left_bits)?;
+        let right = layer_from_bits(right_bits)?;
+        self.simulation.set_layer_interaction(left, right, allowed);
+        Ok(())
+    }
 }
 
 #[wasm_bindgen]
@@ -93,7 +110,7 @@ pub fn run_demo_json(
 fn snapshot_json(simulation: &Simulation, algorithm: &str) -> Result<String, JsValue> {
     let algorithm = Algorithm::parse(algorithm).map_err(|error| JsValue::from_str(&error))?;
     let config = simulation.config();
-    let interaction_result = run_interactions(algorithm, config, simulation.entities());
+    let interaction_result = simulation.interactions(algorithm);
     let possible_pairs =
         (config.objects as u64).saturating_mul(config.objects.saturating_sub(1) as u64) / 2;
     let (static_count, dynamic_count) = simulation.counts();
@@ -109,9 +126,8 @@ fn snapshot_json(simulation: &Simulation, algorithm: &str) -> Result<String, JsV
                 "max": entity.body.aabb.max,
                 "motion": entity.motion.as_str(),
                 "interaction": entity.interaction.as_str(),
-                "layer": entity.filter.layer.as_str(),
-                "layerBits": entity.filter.layer.bits(),
-                "maskBits": entity.filter.mask.bits(),
+                "layer": entity.layer.as_str(),
+                "layerBits": entity.layer.bits(),
                 "velocity": entity.velocity,
             })
         })
@@ -148,13 +164,50 @@ fn snapshot_json(simulation: &Simulation, algorithm: &str) -> Result<String, JsV
             "interactionPairs": interaction_result.pairs.len(),
             "sensorPairs": interaction_result.sensor_pairs.len(),
         },
-        "interactionMatrix": {
-            "world": { "world": false, "actor": true },
-            "actor": { "world": true, "actor": true },
-        },
+        "interactionMatrix": matrix_json(simulation),
         "possiblePairs": possible_pairs,
     }))
     .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
+fn matrix_json(simulation: &Simulation) -> Value {
+    let matrix = simulation.interaction_matrix();
+    let layers: Vec<_> = CollisionLayer::ALL
+        .iter()
+        .map(|layer| {
+            json!({
+                "name": layer.as_str(),
+                "bits": layer.bits(),
+                "allowsBits": matrix.row_bits(*layer),
+            })
+        })
+        .collect();
+    let entries: Vec<_> = CollisionLayer::ALL
+        .iter()
+        .flat_map(|left| {
+            CollisionLayer::ALL.iter().map(move |right| {
+                json!({
+                    "left": left.bits(),
+                    "right": right.bits(),
+                    "allowed": matrix.allows(*left, *right),
+                })
+            })
+        })
+        .collect();
+
+    json!({
+        "layers": layers,
+        "entries": entries,
+    })
+}
+
+fn layer_from_bits(bits: u32) -> Result<CollisionLayer, JsValue> {
+    if !bits.is_power_of_two() {
+        return Err(JsValue::from_str(
+            "collision layer must contain exactly one bit",
+        ));
+    }
+    Ok(CollisionLayer::from_bits(bits))
 }
 
 fn trace_json(simulation: &Simulation, algorithm: &str) -> Result<String, JsValue> {
