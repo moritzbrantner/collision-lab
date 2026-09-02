@@ -15,6 +15,10 @@ type AlgorithmId =
   | "dynamic-aabb-tree";
 
 type Pair = [number, number];
+type Bounds = {
+  min: [number, number, number];
+  max: [number, number, number];
+};
 
 type DemoBody = {
   id: number;
@@ -93,13 +97,54 @@ type SweepTrace = {
   steps: SweepTraceStep[];
 };
 
+type DynamicTreeNode = {
+  index: number;
+  bounds: Bounds;
+  exactBounds: Bounds | null;
+  height: number;
+  body: number | null;
+  parent: number | null;
+  left: number | null;
+  right: number | null;
+  isRoot: boolean;
+};
+
+type DynamicTreeUpdate = {
+  id: number;
+  reinserted: boolean;
+  previousFatBounds: Bounds;
+  currentFatBounds: Bounds;
+};
+
+type DynamicTreeFocus = DynamicTreeUpdate & {
+  heightBefore: number;
+  heightAfter: number;
+  changedNodes: number[];
+  beforeNodes: DynamicTreeNode[];
+  afterNodes: DynamicTreeNode[];
+};
+
+type DynamicTreeTrace = {
+  kind: "dynamic-aabb-tree";
+  frame: number;
+  fatMargin: number;
+  height: number;
+  nodeCount: number;
+  reinsertionCount: number;
+  containedCount: number;
+  pairParity: boolean;
+  updates: DynamicTreeUpdate[];
+  focus: DynamicTreeFocus | null;
+  nodes: DynamicTreeNode[];
+};
+
 type UnsupportedTrace = {
   kind: "unsupported";
   frame: number;
   algorithm: AlgorithmId;
 };
 
-type AlgorithmTrace = GridTrace | SweepTrace | UnsupportedTrace;
+type AlgorithmTrace = GridTrace | SweepTrace | DynamicTreeTrace | UnsupportedTrace;
 
 type RenderResources = {
   scene: THREE.Scene;
@@ -114,6 +159,7 @@ type RenderResources = {
   tracePairLines: THREE.LineSegments;
   sweepPlane: THREE.Mesh | null;
   traceCellHelper: THREE.Box3Helper | null;
+  dynamicTraceHelpers: THREE.Box3Helper[];
   resizeObserver: ResizeObserver;
   animationFrame: number;
 };
@@ -128,6 +174,7 @@ const ALGORITHMS: { value: AlgorithmId; label: string }[] = [
 
 const FIXED_TIMESTEP_SECONDS = 1 / 30;
 const SENSOR_OUTLINE_PADDING = 0.22;
+const MAX_DYNAMIC_TRACE_BOXES = 80;
 
 export function InteractiveCollisionDemo({
   initialAlgorithm = "uniform-grid",
@@ -261,7 +308,7 @@ export function InteractiveCollisionDemo({
   }, [algorithm, isPlaying, snapshot]);
 
   const currentTraceStep = useMemo(() => {
-    if (!trace || trace.kind === "unsupported") return null;
+    if (!trace || trace.kind === "unsupported" || trace.kind === "dynamic-aabb-tree") return null;
     if (trace.steps.length === 0) return null;
     return trace.steps[Math.min(traceStepIndex, trace.steps.length - 1)];
   }, [trace, traceStepIndex]);
@@ -285,6 +332,8 @@ export function InteractiveCollisionDemo({
       step.activeBeforeTests.forEach((id) => active.add(id));
       step.overlappingPairs.flat().forEach((id) => overlaps.add(id));
       testedPairs.push(...step.testedPairs);
+    } else if (trace?.kind === "dynamic-aabb-tree" && trace.focus) {
+      current.add(trace.focus.id);
     }
 
     return { active, current, overlaps, testedPairs };
@@ -371,7 +420,7 @@ export function InteractiveCollisionDemo({
           color: 0xa78bfa,
           wireframe: true,
           transparent: true,
-          opacity: 0.12,
+          opacity: 0.18,
         }),
         objects,
       );
@@ -428,6 +477,7 @@ export function InteractiveCollisionDemo({
       tracePairLines,
       sweepPlane,
       traceCellHelper: null,
+      dynamicTraceHelpers: [],
       resizeObserver,
       animationFrame,
     };
@@ -510,22 +560,17 @@ export function InteractiveCollisionDemo({
     resources.sensorMesh.instanceMatrix.needsUpdate = true;
 
     if (resources.fatMesh) {
-      resources.fatMesh.count = snapshot.bodies.length;
-      snapshot.bodies.forEach((body, index) => {
-        position.set(
-          (body.min[0] + body.max[0]) * 0.5,
-          (body.min[1] + body.max[1]) * 0.5,
-          (body.min[2] + body.max[2]) * 0.5,
-        );
-        scale.set(
-          body.max[0] - body.min[0] + fatMargin * 2,
-          body.max[1] - body.min[1] + fatMargin * 2,
-          body.max[2] - body.min[2] + fatMargin * 2,
-        );
-        matrix.compose(position, quaternion, scale);
-        resources.fatMesh?.setMatrixAt(index, matrix);
-      });
-      resources.fatMesh.instanceMatrix.needsUpdate = true;
+      if (trace?.kind === "dynamic-aabb-tree") {
+        const leaves = trace.nodes.filter((node) => node.body !== null);
+        resources.fatMesh.count = leaves.length;
+        leaves.forEach((node, index) => {
+          applyBoundsMatrix(node.bounds, matrix, position, scale, quaternion);
+          resources.fatMesh?.setMatrixAt(index, matrix);
+        });
+        resources.fatMesh.instanceMatrix.needsUpdate = true;
+      } else {
+        resources.fatMesh.count = 0;
+      }
     }
 
     const sensorKeys = new Set(snapshot.sensorPairs.map(pairKey));
@@ -533,20 +578,18 @@ export function InteractiveCollisionDemo({
     replaceLineGeometry(resources.pairLines, solidPairs.slice(0, 1500), centers);
     replaceLineGeometry(resources.sensorPairLines, snapshot.sensorPairs.slice(0, 1500), centers);
     replaceLineGeometry(resources.tracePairLines, traceFocus.testedPairs, centers);
-  }, [collidingIds, fatMargin, snapshot, traceFocus]);
+  }, [collidingIds, snapshot, trace, traceFocus]);
 
   useEffect(() => {
     const resources = renderRef.current;
     if (!resources) return;
 
     if (resources.traceCellHelper) {
-      resources.scene.remove(resources.traceCellHelper);
-      resources.traceCellHelper.geometry.dispose();
-      const material = resources.traceCellHelper.material;
-      if (Array.isArray(material)) material.forEach((entry) => entry.dispose());
-      else material.dispose();
+      disposeBoxHelper(resources.scene, resources.traceCellHelper);
       resources.traceCellHelper = null;
     }
+    resources.dynamicTraceHelpers.forEach((helper) => disposeBoxHelper(resources.scene, helper));
+    resources.dynamicTraceHelpers = [];
 
     if (trace?.kind === "uniform-grid" && currentTraceStep) {
       const step = currentTraceStep as GridTraceStep;
@@ -567,6 +610,19 @@ export function InteractiveCollisionDemo({
         trace?.kind === "sweep-and-prune" && currentTraceStep
           ? (currentTraceStep as SweepTraceStep).intervalMin
           : 0;
+    }
+
+    if (trace?.kind === "dynamic-aabb-tree" && trace.focus) {
+      const changed = new Set(trace.focus.changedNodes);
+      const changedNodes = trace.focus.afterNodes
+        .filter((node) => changed.has(node.index))
+        .slice(0, MAX_DYNAMIC_TRACE_BOXES);
+      const color = trace.focus.reinserted ? 0xfb923c : 0x4ade80;
+      for (const node of changedNodes) {
+        const helper = boundsHelper(node.bounds, color);
+        resources.scene.add(helper);
+        resources.dynamicTraceHelpers.push(helper);
+      }
     }
   }, [cellSize, currentTraceStep, trace]);
 
@@ -609,7 +665,7 @@ export function InteractiveCollisionDemo({
           </p>
           <h2 className="mt-2 text-xl font-semibold text-zinc-100">Live collision playground</h2>
           <p className="mt-2 text-sm leading-6 text-zinc-500">
-            Motion, interaction meaning, and layer eligibility are independent. Sensor bodies are marked separately and never change how broad-phase geometry is computed.
+            Motion, interaction meaning, layer policy, and broad-phase structure stay independent. Pause a moving scene to inspect the real Rust algorithm state.
           </p>
 
           <label className="mt-6 block text-xs font-semibold text-zinc-400">
@@ -674,7 +730,7 @@ export function InteractiveCollisionDemo({
             <Legend colorClass="bg-cyan-400" label="Dynamic" />
             <Legend colorClass="bg-red-400" label="Solid interaction" />
             <Legend colorClass="bg-fuchsia-400" label="Sensor / sensor interaction" />
-            <Legend colorClass="bg-violet-400" label="Trace active" />
+            <Legend colorClass="bg-violet-400" label="Fat AABB / trace active" />
             <Legend colorClass="bg-yellow-400" label="Trace current" />
           </div>
 
@@ -742,10 +798,13 @@ function TraceInspector({
       <TraceCard>
         <p className="font-semibold text-zinc-200">Trace coming next</p>
         <p className="mt-2 leading-5 text-zinc-500">
-          This first inspector covers uniform grid and sweep-and-prune. BVH traversal and dynamic-tree mutation traces are the next batch.
+          Static-BVH traversal is the remaining broad-phase trace. The dynamic tree is retained across frames and can be inspected directly.
         </p>
       </TraceCard>
     );
+  }
+  if (trace.kind === "dynamic-aabb-tree") {
+    return <DynamicTreeDetails trace={trace} />;
   }
 
   const maxIndex = Math.max(0, trace.steps.length - 1);
@@ -782,6 +841,63 @@ function TraceInspector({
       ) : (
         <SweepStepDetails step={step as SweepTraceStep} />
       )}
+    </div>
+  );
+}
+
+function DynamicTreeDetails({ trace }: { trace: DynamicTreeTrace }) {
+  const reinsertionIds = trace.updates
+    .filter((update) => update.reinserted)
+    .slice(0, 12)
+    .map((update) => update.id);
+
+  return (
+    <div className="absolute right-3 top-3 z-10 w-[min(25rem,calc(100%-1.5rem))] rounded-2xl border border-zinc-700 bg-zinc-950/95 p-4 text-xs shadow-2xl backdrop-blur">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="font-semibold uppercase tracking-[0.16em] text-zinc-500">Stateful kernel trace</p>
+          <p className="mt-1 text-sm font-semibold text-zinc-100">Dynamic AABB tree</p>
+        </div>
+        <span className="font-mono text-zinc-500">frame {trace.frame}</span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <SmallMetric label="Contained" value={trace.containedCount} />
+        <SmallMetric label="Reinserted" value={trace.reinsertionCount} />
+        <SmallMetric label="Tree height" value={trace.height} />
+        <SmallMetric label="Nodes" value={trace.nodeCount} />
+      </div>
+
+      <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+        <div className="text-[10px] uppercase tracking-wide text-zinc-600">Retained-tree parity</div>
+        <div className={`mt-1 font-mono font-semibold ${trace.pairParity ? "text-emerald-300" : "text-red-300"}`}>
+          {trace.pairParity ? "exact pair set verified" : "pair mismatch"}
+        </div>
+      </div>
+
+      {trace.focus ? (
+        <div className="mt-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <TraceMetric label="Focus body" value={String(trace.focus.id)} />
+            <span className={`rounded-full border px-2 py-1 font-semibold ${trace.focus.reinserted ? "border-orange-700/60 bg-orange-950/40 text-orange-300" : "border-emerald-700/60 bg-emerald-950/40 text-emerald-300"}`}>
+              {trace.focus.reinserted ? "escaped → reinserted" : "inside fat AABB"}
+            </span>
+          </div>
+          <TraceMetric label="Fat bound before" value={formatBounds(trace.focus.previousFatBounds)} />
+          <TraceMetric label="Fat bound after" value={formatBounds(trace.focus.currentFatBounds)} />
+          <TraceMetric label="Structural nodes changed" value={`${trace.focus.changedNodes.length} · ${formatIds(trace.focus.changedNodes)}`} />
+          <TraceMetric label="Height" value={`${trace.focus.heightBefore} → ${trace.focus.heightAfter}`} />
+          <p className="leading-5 text-zinc-500">
+            Highlighted boxes are the tree nodes whose snapshots changed during this representative update. Green means the body stayed inside its fat bound; orange means it escaped and was reinserted.
+          </p>
+        </div>
+      ) : (
+        <p className="mt-4 leading-5 text-zinc-500">
+          No moving body update has been recorded yet. Advance the simulation one frame to inspect fat-AABB behavior.
+        </p>
+      )}
+
+      <TraceMetric label="Bodies reinserted this frame" value={formatIds(reinsertionIds)} />
     </div>
   );
 }
@@ -892,6 +1008,50 @@ function formatIds(ids: number[]) {
   if (ids.length === 0) return "—";
   const preview = ids.slice(0, 20).join(", ");
   return ids.length > 20 ? `${preview}, … +${ids.length - 20}` : preview;
+}
+
+function formatBounds(bounds: Bounds) {
+  const min = bounds.min.map((value) => value.toFixed(1)).join(", ");
+  const max = bounds.max.map((value) => value.toFixed(1)).join(", ");
+  return `[${min}] → [${max}]`;
+}
+
+function applyBoundsMatrix(
+  bounds: Bounds,
+  matrix: THREE.Matrix4,
+  position: THREE.Vector3,
+  scale: THREE.Vector3,
+  quaternion: THREE.Quaternion,
+) {
+  position.set(
+    (bounds.min[0] + bounds.max[0]) * 0.5,
+    (bounds.min[1] + bounds.max[1]) * 0.5,
+    (bounds.min[2] + bounds.max[2]) * 0.5,
+  );
+  scale.set(
+    bounds.max[0] - bounds.min[0],
+    bounds.max[1] - bounds.min[1],
+    bounds.max[2] - bounds.min[2],
+  );
+  matrix.compose(position, quaternion, scale);
+}
+
+function boundsHelper(bounds: Bounds, color: number) {
+  return new THREE.Box3Helper(
+    new THREE.Box3(
+      new THREE.Vector3(bounds.min[0], bounds.min[1], bounds.min[2]),
+      new THREE.Vector3(bounds.max[0], bounds.max[1], bounds.max[2]),
+    ),
+    color,
+  );
+}
+
+function disposeBoxHelper(scene: THREE.Scene, helper: THREE.Box3Helper) {
+  scene.remove(helper);
+  helper.geometry.dispose();
+  const material = helper.material;
+  if (Array.isArray(material)) material.forEach((entry) => entry.dispose());
+  else material.dispose();
 }
 
 function replaceLineGeometry(

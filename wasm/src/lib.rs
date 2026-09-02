@@ -1,15 +1,33 @@
+use bvh_kernels::{DynamicAabbNodeSnapshot, DynamicAabbTree, DynamicAabbUpdateTrace};
 use collision_lab::{
-    Algorithm, CollisionLayer, Config, InteractionConfig, MotionConfig, Scenario, Simulation,
+    Algorithm, CollisionLayer, Config, InteractionConfig, MotionConfig, MotionKind, Scenario,
+    Simulation, run_algorithm,
 };
 use serde_json::{Value, json};
-use spatial_kernels::{Axis3, Pair, SweepAndPruneBroadPhase, UniformGridBroadPhase};
+use spatial_kernels::{Aabb, Axis3, Pair, SweepAndPruneBroadPhase, UniformGridBroadPhase};
 use wasm_bindgen::prelude::*;
 
 const TRACE_PAIR_PREVIEW_LIMIT: usize = 32;
 
+#[derive(Clone, Copy, Debug)]
+struct DynamicUpdateSummary {
+    id: u32,
+    reinserted: bool,
+    previous_fat_bounds: Aabb,
+    current_fat_bounds: Aabb,
+}
+
+#[derive(Clone, Debug, Default)]
+struct DynamicFrameTrace {
+    updates: Vec<DynamicUpdateSummary>,
+    focus: Option<DynamicAabbUpdateTrace>,
+}
+
 #[wasm_bindgen]
 pub struct DemoWorld {
     simulation: Simulation,
+    dynamic_tree: DynamicAabbTree,
+    dynamic_trace: DynamicFrameTrace,
 }
 
 #[wasm_bindgen]
@@ -48,9 +66,16 @@ impl DemoWorld {
         let interaction = InteractionConfig { sensor_fraction }
             .validate()
             .map_err(|error| JsValue::from_str(&error))?;
+        let simulation = Simulation::new(config, motion, interaction);
+        let mut dynamic_tree = DynamicAabbTree::new(config.fat_margin);
+        for body in simulation.bodies() {
+            dynamic_tree.insert(body);
+        }
 
         Ok(Self {
-            simulation: Simulation::new(config, motion, interaction),
+            simulation,
+            dynamic_tree,
+            dynamic_trace: DynamicFrameTrace::default(),
         })
     }
 
@@ -60,11 +85,17 @@ impl DemoWorld {
 
     pub fn step_json(&mut self, algorithm: &str, dt_seconds: f32) -> Result<String, JsValue> {
         self.simulation.step(dt_seconds);
+        self.update_dynamic_tree();
         snapshot_json(&self.simulation, algorithm)
     }
 
     pub fn trace_json(&self, algorithm: &str) -> Result<String, JsValue> {
-        trace_json(&self.simulation, algorithm)
+        let algorithm = Algorithm::parse(algorithm).map_err(|error| JsValue::from_str(&error))?;
+        if algorithm == Algorithm::DynamicAabbTree {
+            dynamic_tree_trace_json(self)
+        } else {
+            trace_json(&self.simulation, algorithm)
+        }
     }
 
     pub fn interaction_matrix_json(&self) -> Result<String, JsValue> {
@@ -82,6 +113,61 @@ impl DemoWorld {
         let right = layer_from_bits(right_bits)?;
         self.simulation.set_layer_interaction(left, right, allowed);
         Ok(())
+    }
+}
+
+impl DemoWorld {
+    fn update_dynamic_tree(&mut self) {
+        let moving_bodies: Vec<_> = self
+            .simulation
+            .entities()
+            .iter()
+            .filter(|entity| entity.motion == MotionKind::Dynamic)
+            .map(|entity| entity.body)
+            .collect();
+
+        let focus_id = moving_bodies
+            .iter()
+            .find(|body| {
+                self.dynamic_tree
+                    .fat_bounds(body.id)
+                    .is_some_and(|fat| !fat.contains(body.aabb))
+            })
+            .map(|body| body.id)
+            .or_else(|| moving_bodies.first().map(|body| body.id));
+
+        let mut updates = Vec::with_capacity(moving_bodies.len());
+        let mut focus = None;
+        for body in moving_bodies {
+            let previous_fat_bounds = self
+                .dynamic_tree
+                .fat_bounds(body.id)
+                .expect("simulation body must exist in retained dynamic tree");
+            if focus_id == Some(body.id) {
+                let trace = self.dynamic_tree.update_with_trace(body);
+                updates.push(DynamicUpdateSummary {
+                    id: body.id,
+                    reinserted: trace.reinserted,
+                    previous_fat_bounds: trace.previous_fat_bounds,
+                    current_fat_bounds: trace.current_fat_bounds,
+                });
+                focus = Some(trace);
+            } else {
+                let reinserted = self.dynamic_tree.update(body);
+                let current_fat_bounds = self
+                    .dynamic_tree
+                    .fat_bounds(body.id)
+                    .expect("updated simulation body must remain in retained dynamic tree");
+                updates.push(DynamicUpdateSummary {
+                    id: body.id,
+                    reinserted,
+                    previous_fat_bounds,
+                    current_fat_bounds,
+                });
+            }
+        }
+
+        self.dynamic_trace = DynamicFrameTrace { updates, focus };
     }
 }
 
@@ -214,8 +300,7 @@ fn layer_from_bits(bits: u32) -> Result<CollisionLayer, JsValue> {
     Ok(CollisionLayer::from_bits(bits))
 }
 
-fn trace_json(simulation: &Simulation, algorithm: &str) -> Result<String, JsValue> {
-    let algorithm = Algorithm::parse(algorithm).map_err(|error| JsValue::from_str(&error))?;
+fn trace_json(simulation: &Simulation, algorithm: Algorithm) -> Result<String, JsValue> {
     let config = simulation.config();
     let bodies = simulation.bodies();
 
@@ -283,6 +368,84 @@ fn trace_json(simulation: &Simulation, algorithm: &str) -> Result<String, JsValu
     };
 
     serde_json::to_string(&value).map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
+fn dynamic_tree_trace_json(world: &DemoWorld) -> Result<String, JsValue> {
+    let config = world.simulation.config();
+    let nodes = world.dynamic_tree.debug_nodes();
+    let current_bodies = world.simulation.bodies();
+    let retained_pairs = world.dynamic_tree.overlapping_pairs();
+    let snapshot_pairs = run_algorithm(Algorithm::DynamicAabbTree, config, &current_bodies).pairs;
+    let reinsertion_count = world
+        .dynamic_trace
+        .updates
+        .iter()
+        .filter(|update| update.reinserted)
+        .count();
+    let contained_count = world.dynamic_trace.updates.len() - reinsertion_count;
+    let updates: Vec<_> = world
+        .dynamic_trace
+        .updates
+        .iter()
+        .map(|update| {
+            json!({
+                "id": update.id,
+                "reinserted": update.reinserted,
+                "previousFatBounds": aabb_json(update.previous_fat_bounds),
+                "currentFatBounds": aabb_json(update.current_fat_bounds),
+            })
+        })
+        .collect();
+
+    let focus = world.dynamic_trace.focus.as_ref().map(|trace| {
+        json!({
+            "id": trace.id,
+            "reinserted": trace.reinserted,
+            "previousFatBounds": aabb_json(trace.previous_fat_bounds),
+            "currentFatBounds": aabb_json(trace.current_fat_bounds),
+            "heightBefore": trace.height_before,
+            "heightAfter": trace.height_after,
+            "changedNodes": trace.changed_nodes,
+            "beforeNodes": trace.before_nodes.iter().map(dynamic_node_json).collect::<Vec<_>>(),
+            "afterNodes": trace.after_nodes.iter().map(dynamic_node_json).collect::<Vec<_>>(),
+        })
+    });
+
+    serde_json::to_string(&json!({
+        "kind": "dynamic-aabb-tree",
+        "frame": world.simulation.frame(),
+        "fatMargin": config.fat_margin,
+        "height": world.dynamic_tree.height(),
+        "nodeCount": world.dynamic_tree.node_count(),
+        "reinsertionCount": reinsertion_count,
+        "containedCount": contained_count,
+        "pairParity": retained_pairs == snapshot_pairs,
+        "updates": updates,
+        "focus": focus,
+        "nodes": nodes.iter().map(dynamic_node_json).collect::<Vec<_>>(),
+    }))
+    .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
+fn dynamic_node_json(node: &DynamicAabbNodeSnapshot) -> Value {
+    json!({
+        "index": node.index,
+        "bounds": aabb_json(node.bounds),
+        "exactBounds": node.exact_bounds.map(aabb_json),
+        "height": node.height,
+        "body": node.body,
+        "parent": node.parent,
+        "left": node.left,
+        "right": node.right,
+        "isRoot": node.is_root,
+    })
+}
+
+fn aabb_json(aabb: Aabb) -> Value {
+    json!({
+        "min": aabb.min,
+        "max": aabb.max,
+    })
 }
 
 fn pair_preview(pairs: &[Pair]) -> Vec<Value> {
