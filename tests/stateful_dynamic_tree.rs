@@ -65,7 +65,16 @@ fn retained_dynamic_tree_matches_snapshot_oracle_through_motion() {
         );
     }
 
-    assert!(saw_contained_update, "fat AABBs should absorb some movement");
-    assert!(saw_reinsertion, "some bodies should eventually leave their fat AABBs");
-    assert!(saw_structural_trace, "representative updates should produce a trace");
+    assert!(
+        saw_contained_update,
+        "fat AABBs should absorb some movement"
+    );
+    assert!(
+        saw_reinsertion,
+        "some bodies should eventually leave their fat AABBs"
+    );
+    assert!(
+        saw_structural_trace,
+        "representative updates should produce a trace"
+    );
 }
