@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { AnalysisMode } from "../../components/analysis-mode";
+import { PresetAnalysis } from "../../components/preset-analysis";
 
 export default function AnalysisPage() {
   return (
@@ -16,6 +17,9 @@ export default function AnalysisPage() {
           <Link href="/demo/" className="rounded-full border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100">
             Experiment
           </Link>
+          <Link href="/compute/" className="rounded-full border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100">
+            Compute
+          </Link>
         </div>
       </div>
 
@@ -25,12 +29,16 @@ export default function AnalysisPage() {
           Measure the tradeoffs instead of guessing them.
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-zinc-400">
-          Explanation shows why an algorithm works. Experiment shows it moving in a world. Analysis compares how much work each real Rust implementation performs as the workload changes.
+          Explanation shows why an algorithm works. Experiment shows it moving in a world. Analysis compares how much work each real Rust implementation performs as both scale and workload structure change.
         </p>
       </div>
 
       <div className="mt-10">
         <AnalysisMode />
+      </div>
+
+      <div className="mt-12">
+        <PresetAnalysis />
       </div>
     </main>
   );
