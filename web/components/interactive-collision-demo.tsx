@@ -10,6 +10,7 @@ import initWasm, { DemoWorld } from "../lib/wasm-pkg/collision_wasm";
 type AlgorithmId =
   | "naive"
   | "uniform-grid"
+  | "octree"
   | "sweep-and-prune"
   | "static-bvh"
   | "dynamic-aabb-tree";
@@ -73,6 +74,25 @@ type GridTrace = {
   aabbTests: number;
   cellSize: number;
   steps: GridTraceStep[];
+};
+
+type OctreeNode = {
+  index: number;
+  bounds: Bounds;
+  depth: number;
+  members: number[];
+  children: number[];
+  isLeaf: boolean;
+};
+
+type OctreeTrace = {
+  kind: "octree";
+  frame: number;
+  aabbTests: number;
+  root: number | null;
+  leafCount: number;
+  occupiedLeafCount: number;
+  nodes: OctreeNode[];
 };
 
 type SweepTraceStep = {
@@ -144,7 +164,7 @@ type UnsupportedTrace = {
   algorithm: AlgorithmId;
 };
 
-type AlgorithmTrace = GridTrace | SweepTrace | DynamicTreeTrace | UnsupportedTrace;
+type AlgorithmTrace = GridTrace | OctreeTrace | SweepTrace | DynamicTreeTrace | UnsupportedTrace;
 
 type RenderResources = {
   scene: THREE.Scene;
@@ -168,6 +188,7 @@ type RenderResources = {
 const ALGORITHMS: { value: AlgorithmId; label: string }[] = [
   { value: "naive", label: "Naive all-pairs" },
   { value: "uniform-grid", label: "Uniform grid" },
+  { value: "octree", label: "Octree" },
   { value: "sweep-and-prune", label: "Sweep and prune" },
   { value: "static-bvh", label: "Static BVH" },
   { value: "dynamic-aabb-tree", label: "Dynamic AABB tree" },
@@ -176,6 +197,7 @@ const ALGORITHMS: { value: AlgorithmId; label: string }[] = [
 const FIXED_TIMESTEP_SECONDS = 1 / 30;
 const SENSOR_OUTLINE_PADDING = 0.22;
 const MAX_DYNAMIC_TRACE_BOXES = 80;
+const MAX_OCTREE_HELPER_BOXES = 120;
 
 export function InteractiveCollisionDemo({
   initialAlgorithm = "uniform-grid",
@@ -313,7 +335,14 @@ export function InteractiveCollisionDemo({
   }, [algorithm, isPlaying, snapshot]);
 
   const currentTraceStep = useMemo(() => {
-    if (!trace || trace.kind === "unsupported" || trace.kind === "dynamic-aabb-tree") return null;
+    if (
+      !trace ||
+      trace.kind === "unsupported" ||
+      trace.kind === "dynamic-aabb-tree" ||
+      trace.kind === "octree"
+    ) {
+      return null;
+    }
     if (trace.steps.length === 0) return null;
     return trace.steps[Math.min(traceStepIndex, trace.steps.length - 1)];
   }, [trace, traceStepIndex]);
@@ -639,6 +668,18 @@ export function InteractiveCollisionDemo({
           : 0;
     }
 
+    if (trace?.kind === "octree") {
+      const visibleNodes = trace.nodes
+        .filter((node) => node.depth <= 2)
+        .slice(0, MAX_OCTREE_HELPER_BOXES);
+      for (const node of visibleNodes) {
+        const color = node.depth === 0 ? 0xe4e4e7 : node.depth === 1 ? 0x22d3ee : 0x52525b;
+        const helper = boundsHelper(node.bounds, color);
+        resources.helperGroup.add(helper);
+        resources.dynamicTraceHelpers.push(helper);
+      }
+    }
+
     if (trace?.kind === "dynamic-aabb-tree" && trace.focus) {
       const changed = new Set(trace.focus.changedNodes);
       const changedNodes = trace.focus.afterNodes
@@ -835,13 +876,16 @@ function TraceInspector({
       <TraceCard>
         <p className="font-semibold text-zinc-200">Trace coming next</p>
         <p className="mt-2 leading-5 text-zinc-500">
-          Static-BVH traversal is the remaining broad-phase trace. The dynamic tree is retained across frames and can be inspected directly.
+          Static-BVH traversal is the remaining broad-phase trace. The other hierarchical helpers can already be inspected directly.
         </p>
       </TraceCard>
     );
   }
   if (trace.kind === "dynamic-aabb-tree") {
     return <DynamicTreeDetails trace={trace} />;
+  }
+  if (trace.kind === "octree") {
+    return <OctreeDetails trace={trace} />;
   }
 
   const maxIndex = Math.max(0, trace.steps.length - 1);
@@ -878,6 +922,36 @@ function TraceInspector({
       ) : (
         <SweepStepDetails step={step as SweepTraceStep} />
       )}
+    </div>
+  );
+}
+
+function OctreeDetails({ trace }: { trace: OctreeTrace }) {
+  const root = trace.root === null ? null : trace.nodes.find((node) => node.index === trace.root);
+  const firstLevel = trace.nodes.filter((node) => node.depth === 1);
+  const maxDepth = trace.nodes.reduce((depth, node) => Math.max(depth, node.depth), 0);
+
+  return (
+    <div className="absolute right-3 top-3 z-10 w-[min(25rem,calc(100%-1.5rem))] rounded-2xl border border-zinc-700 bg-zinc-950/95 p-4 text-xs shadow-2xl backdrop-blur">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="font-semibold uppercase tracking-[0.16em] text-zinc-500">Hierarchy helper</p>
+          <p className="mt-1 text-sm font-semibold text-zinc-100">Octree</p>
+        </div>
+        <span className="font-mono text-zinc-500">frame {trace.frame}</span>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <SmallMetric label="Exact tests" value={trace.aabbTests} />
+        <SmallMetric label="Nodes" value={trace.nodes.length} />
+        <SmallMetric label="Leaves" value={trace.leafCount} />
+        <SmallMetric label="Occupied leaves" value={trace.occupiedLeafCount} />
+        <SmallMetric label="Max depth" value={maxDepth} />
+        <SmallMetric label="Root children" value={root?.children.length ?? 0} />
+      </div>
+      <p className="mt-4 leading-5 text-zinc-500">
+        White is the root cube. Cyan boxes are its eight depth-1 children; deeper subdivisions are muted. A body may belong to multiple leaves when it straddles a subdivision boundary, so candidate pairs are deduplicated before exact tests.
+      </p>
+      <TraceMetric label="Depth-1 boxes" value={`${firstLevel.length} visible children`} />
     </div>
   );
 }
