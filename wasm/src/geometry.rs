@@ -1,4 +1,4 @@
-use geometry_kernels::{Sphere, aabb_aabb, sphere_sphere};
+use geometry_kernels::{Obb2, Sphere, aabb_aabb, obb2_sat, sphere_sphere};
 use serde_json::json;
 use spatial_kernels::Aabb;
 use wasm_bindgen::prelude::*;
@@ -61,6 +61,69 @@ pub fn aabb_aabb_json(
         "left": { "min": left.min, "max": left.max },
         "right": { "min": right.min, "max": right.max },
         "axisOverlap": relation.axis_overlap,
+        "overlaps": relation.overlaps,
+    }))
+    .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
+#[allow(clippy::too_many_arguments)]
+#[wasm_bindgen]
+pub fn obb2_sat_json(
+    left_x: f32,
+    left_y: f32,
+    left_half_x: f32,
+    left_half_y: f32,
+    left_rotation: f32,
+    right_x: f32,
+    right_y: f32,
+    right_half_x: f32,
+    right_half_y: f32,
+    right_rotation: f32,
+) -> Result<String, JsValue> {
+    let left = Obb2::new(
+        [left_x, left_y],
+        [left_half_x, left_half_y],
+        left_rotation,
+    );
+    let right = Obb2::new(
+        [right_x, right_y],
+        [right_half_x, right_half_y],
+        right_rotation,
+    );
+    let relation = obb2_sat(left, right);
+    let axis_labels = ["A.x", "A.y", "B.x", "B.y"];
+    let axes: Vec<_> = relation
+        .axes
+        .iter()
+        .enumerate()
+        .map(|(index, axis)| {
+            json!({
+                "index": index,
+                "label": axis_labels[index],
+                "axis": axis.axis,
+                "leftRadius": axis.left_radius,
+                "rightRadius": axis.right_radius,
+                "centerDistance": axis.center_distance,
+                "signedOverlap": axis.signed_overlap,
+                "separating": axis.separating,
+                "critical": relation.critical_axis == index,
+            })
+        })
+        .collect();
+
+    serde_json::to_string(&json!({
+        "left": {
+            "center": left.center,
+            "halfExtents": left.half_extents,
+            "rotationRadians": left.rotation_radians,
+        },
+        "right": {
+            "center": right.center,
+            "halfExtents": right.half_extents,
+            "rotationRadians": right.rotation_radians,
+        },
+        "axes": axes,
+        "criticalAxis": relation.critical_axis,
         "overlaps": relation.overlaps,
     }))
     .map_err(|error| JsValue::from_str(&error.to_string()))
