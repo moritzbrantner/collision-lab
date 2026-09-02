@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
+import { InteractionMatrixEditor, type InteractionMatrixData } from "./interaction-matrix-editor";
 import initWasm, { DemoWorld } from "../lib/wasm-pkg/collision_wasm";
 
 type AlgorithmId =
@@ -20,6 +21,9 @@ type DemoBody = {
   min: [number, number, number];
   max: [number, number, number];
   motion: "static" | "dynamic";
+  interaction: "solid" | "sensor";
+  layer: string;
+  layerBits: number;
   velocity: [number, number, number];
 };
 
@@ -29,8 +33,22 @@ type DemoSnapshot = {
   frame: number;
   bodies: DemoBody[];
   pairs: Pair[];
-  counts: { static: number; dynamic: number };
-  stats: { aabbTests: number; occupiedCells: number | null };
+  sensorPairs: Pair[];
+  counts: {
+    static: number;
+    dynamic: number;
+    solid: number;
+    sensor: number;
+  };
+  stats: {
+    aabbTests: number;
+    occupiedCells: number | null;
+    spatialOverlaps: number;
+    filteredOut: number;
+    interactionPairs: number;
+    sensorPairs: number;
+  };
+  interactionMatrix: InteractionMatrixData;
   possiblePairs: number;
 };
 
@@ -516,16 +534,28 @@ export function InteractiveCollisionDemo({
     }
   };
 
+  const toggleLayerInteraction = (leftBits: number, rightBits: number, allowed: boolean) => {
+    const world = worldRef.current;
+    if (!world) return;
+    try {
+      world.set_layer_interaction(leftBits, rightBits, allowed);
+      setSnapshot(JSON.parse(world.snapshot_json(algorithm)) as DemoSnapshot);
+      setError(null);
+    } catch (reason) {
+      setError(String(reason));
+    }
+  };
+
   return (
     <section className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950">
-      <div className="grid lg:grid-cols-[20rem_1fr]">
+      <div className="grid lg:grid-cols-[22rem_1fr]">
         <div className="border-b border-zinc-800 p-5 lg:border-b-0 lg:border-r">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
             Rust → WASM → Three.js
           </p>
           <h2 className="mt-2 text-xl font-semibold text-zinc-100">Live collision playground</h2>
           <p className="mt-2 text-sm leading-6 text-zinc-500">
-            Static bodies stay fixed. Dynamic bodies move in deterministic fixed timesteps. Pause to inspect the actual Rust broad-phase trace.
+            Static and dynamic bodies share one Rust world. Spatial algorithms find overlaps; the editable world matrix decides which overlaps become interactions.
           </p>
 
           <label className="mt-6 block text-xs font-semibold text-zinc-400">
@@ -587,14 +617,23 @@ export function InteractiveCollisionDemo({
           <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 text-xs text-zinc-500">
             <Legend colorClass="bg-zinc-500" label="Static" />
             <Legend colorClass="bg-cyan-400" label="Dynamic" />
-            <Legend colorClass="bg-red-400" label="Collision" />
+            <Legend colorClass="bg-red-400" label="Interaction" />
             <Legend colorClass="bg-violet-400" label="Trace active" />
             <Legend colorClass="bg-yellow-400" label="Trace current" />
           </div>
 
+          <InteractionMatrixEditor
+            matrix={snapshot?.interactionMatrix ?? null}
+            spatialOverlaps={snapshot?.stats.spatialOverlaps ?? null}
+            filteredOut={snapshot?.stats.filteredOut ?? null}
+            interactionPairs={snapshot?.stats.interactionPairs ?? null}
+            sensorPairs={snapshot?.stats.sensorPairs ?? null}
+            onToggle={toggleLayerInteraction}
+          />
+
           <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
             <Metric label="Frame" value={snapshot?.frame.toLocaleString() ?? "—"} />
-            <Metric label="Overlaps" value={snapshot?.pairs.length.toLocaleString() ?? "—"} />
+            <Metric label="Interactions" value={snapshot?.pairs.length.toLocaleString() ?? "—"} />
             <Metric label="Static" value={snapshot?.counts.static.toLocaleString() ?? "—"} />
             <Metric label="Dynamic" value={snapshot?.counts.dynamic.toLocaleString() ?? "—"} />
             <Metric label="AABB tests" value={snapshot?.stats.aabbTests.toLocaleString() ?? "—"} />
@@ -606,7 +645,7 @@ export function InteractiveCollisionDemo({
           )}
         </div>
 
-        <div className="relative min-h-[38rem]">
+        <div className="relative min-h-[42rem]">
           <div ref={mountRef} className="absolute inset-0" />
           {!snapshot && !error && (
             <div className="absolute inset-0 grid place-items-center text-sm text-zinc-500">Loading Rust/WASM…</div>
