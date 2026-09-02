@@ -15,13 +15,16 @@ export default function HomePage() {
           <p className="mt-6 text-lg leading-8 text-zinc-400">
             Collision Lab pairs deterministic Rust experiments with visual explanations. Every optimized algorithm must match the same correctness oracle before performance comparisons matter.
           </p>
+          <Link href="/demo/" className="mt-8 inline-flex rounded-xl bg-zinc-100 px-5 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-white">
+            Open the live Rust/WASM playground →
+          </Link>
         </div>
 
         <div className="mt-12 grid gap-4 sm:grid-cols-3">
           {[
-            ["2", "algorithms in the MVP"],
+            [String(algorithms.length), "broad-phase implementations"],
             ["exact", "pair-set parity required"],
-            ["deterministic", "scene generation and reporting"],
+            ["WASM", "same Rust kernels in the browser"],
           ].map(([value, label]) => (
             <div key={label} className="rounded-2xl border border-zinc-800 bg-zinc-900/45 p-5">
               <div className="text-xl font-semibold text-zinc-100">{value}</div>
@@ -38,7 +41,7 @@ export default function HomePage() {
             <h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">Current implementations</h2>
           </div>
           <p className="hidden max-w-md text-right text-sm leading-6 text-zinc-500 md:block">
-            The catalog is intentionally data-driven so new kernels can gain a page without redesigning the site.
+            Each page explains the algorithm; the live playground runs the same Rust implementation through WebAssembly.
           </p>
         </div>
 
@@ -57,10 +60,7 @@ export default function HomePage() {
                 <span className="rounded-full border border-zinc-700 px-3 py-1">{algorithm.complexity}</span>
                 <span className="rounded-full border border-zinc-700 px-3 py-1">{algorithm.memory}</span>
               </div>
-              <Link
-                href={`/algorithms/${algorithm.slug}/`}
-                className="mt-6 inline-flex items-center text-sm font-semibold text-zinc-100 underline decoration-zinc-600 underline-offset-4 transition hover:decoration-zinc-200"
-              >
+              <Link href={`/algorithms/${algorithm.slug}/`} className="mt-6 inline-flex items-center text-sm font-semibold text-zinc-100 underline decoration-zinc-600 underline-offset-4 transition hover:decoration-zinc-200">
                 Open explanation →
               </Link>
             </article>
@@ -75,7 +75,7 @@ export default function HomePage() {
             {[
               ["01", "Generate", "Create the same seeded 3D AABB scene."],
               ["02", "Oracle", "Run the simple naive implementation."],
-              ["03", "Candidate", "Run the optimized broad phase."],
+              ["03", "Candidate", "Run each optimized broad phase."],
               ["04", "Verify", "Require exact sorted pair-set parity, then compare work."],
             ].map(([number, title, copy]) => (
               <div key={number} className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">

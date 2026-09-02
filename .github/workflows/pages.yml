@@ -5,10 +5,16 @@ on:
     branches: [main]
     paths:
       - "web/**"
+      - "wasm/**"
+      - "src/**"
+      - "Cargo.toml"
       - ".github/workflows/pages.yml"
   pull_request:
     paths:
       - "web/**"
+      - "wasm/**"
+      - "src/**"
+      - "Cargo.toml"
       - ".github/workflows/pages.yml"
 
 permissions:
@@ -28,10 +34,14 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.0
       - run: bun install
+      - run: bun run wasm
       - run: bun run typecheck
       - run: bun run build
       - uses: actions/configure-pages@v5

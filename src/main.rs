@@ -3,7 +3,7 @@ use std::{env, process};
 
 const HELP: &str = "collision-lab — compare broad-phase collision algorithms\n\n\
 Usage:\n  cargo run --release -- [options]\n\n\
-Options:\n  --objects N          Number of AABBs (default: 10000)\n  --cell-size N        Uniform-grid cell size (default: 2.5)\n  --seed N             Deterministic scene seed\n  --world-extent N     Half-width of generated world (default: 100)\n  --half-extent N      Half-size of each generated box (default: 0.5)\n  --scenario NAME      uniform | clustered (default: uniform)\n  -h, --help           Show this help\n";
+Options:\n  --objects N          Number of AABBs (default: 10000)\n  --cell-size N        Uniform-grid cell size (default: 2.5)\n  --fat-margin N       Dynamic-tree AABB margin (default: 0.75)\n  --seed N             Deterministic scene seed\n  --world-extent N     Half-width of generated world (default: 100)\n  --half-extent N      Half-size of each generated box (default: 0.5)\n  --scenario NAME      uniform | clustered (default: uniform)\n  -h, --help           Show this help\n";
 
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -26,36 +26,37 @@ fn main() {
         process::exit(1);
     }
 
-    println!("collision-lab MVP");
-    println!("-----------------");
+    println!("collision-lab");
+    println!("-------------");
     println!("scenario:       {}", config.scenario.as_str());
     println!("objects:        {}", experiment.objects);
     println!("possible pairs: {}", experiment.possible_pairs);
     println!("cell size:      {:.3}", config.cell_size);
+    println!("fat margin:     {:.3}", config.fat_margin);
     println!("world extent:   {:.3}", config.world_extent);
     println!("half extent:    {:.3}", config.half_extent);
     println!("seed:           {}", config.seed);
     println!();
-    println!("algorithm       AABB tests      overlaps      occupied cells      elapsed");
     println!(
-        "naive        {:>13} {:>13} {:>19} {:>10.3} ms",
-        experiment.naive.result.stats.aabb_tests,
-        experiment.naive.result.pairs.len(),
-        "-",
-        experiment.naive.elapsed.as_secs_f64() * 1000.0,
+        "algorithm            AABB tests      overlaps      occupied cells      reduction      elapsed"
     );
-    println!(
-        "uniform-grid {:>13} {:>13} {:>19} {:>10.3} ms",
-        experiment.grid.result.stats.aabb_tests,
-        experiment.grid.result.pairs.len(),
-        experiment.grid.result.stats.occupied_cells.unwrap_or(0),
-        experiment.grid.elapsed.as_secs_f64() * 1000.0,
-    );
+    for run in &experiment.runs {
+        let occupied = run
+            .result
+            .stats
+            .occupied_cells
+            .map_or_else(|| "-".to_owned(), |count| count.to_string());
+        println!(
+            "{:<20} {:>12} {:>13} {:>19} {:>11.3}% {:>10.3} ms",
+            run.algorithm.as_str(),
+            run.result.stats.aabb_tests,
+            run.result.pairs.len(),
+            occupied,
+            experiment.test_reduction_percent(run),
+            run.elapsed.as_secs_f64() * 1000.0,
+        );
+    }
     println!();
-    println!(
-        "AABB tests eliminated: {:.3}%",
-        experiment.grid_test_reduction_percent()
-    );
     println!("pair-set parity:       verified");
 }
 
@@ -67,6 +68,7 @@ fn parse_config(args: Vec<String>) -> Result<Config, String> {
         match flag.as_str() {
             "--objects" => config.objects = parse(&next_value(&mut args, &flag)?, &flag)?,
             "--cell-size" => config.cell_size = parse(&next_value(&mut args, &flag)?, &flag)?,
+            "--fat-margin" => config.fat_margin = parse(&next_value(&mut args, &flag)?, &flag)?,
             "--seed" => config.seed = parse(&next_value(&mut args, &flag)?, &flag)?,
             "--world-extent" => config.world_extent = parse(&next_value(&mut args, &flag)?, &flag)?,
             "--half-extent" => config.half_extent = parse(&next_value(&mut args, &flag)?, &flag)?,
@@ -78,10 +80,7 @@ fn parse_config(args: Vec<String>) -> Result<Config, String> {
     config.validate()
 }
 
-fn next_value<I>(args: &mut I, flag: &str) -> Result<String, String>
-where
-    I: Iterator<Item = String>,
-{
+fn next_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {
     args.next()
         .ok_or_else(|| format!("missing value for {flag}"))
 }

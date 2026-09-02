@@ -1,4 +1,6 @@
 /target
+/wasm/target
 /web/node_modules
 /web/.next
 /web/out
+/web/lib/wasm-pkg
