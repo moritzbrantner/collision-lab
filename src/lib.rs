@@ -1,9 +1,12 @@
 use bvh_kernels::{DynamicAabbTreeBroadPhase, StaticBvhBroadPhase};
 use spatial_kernels::{
-    Aabb, Body, BroadPhase, BroadPhaseResult, NaiveBroadPhase, SweepAndPruneBroadPhase,
-    UniformGridBroadPhase,
+    Aabb, Body, BroadPhase, BroadPhaseResult, ColliderId, NaiveBroadPhase, Pair,
+    SweepAndPruneBroadPhase, UniformGridBroadPhase,
 };
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Scenario {
@@ -167,10 +170,124 @@ impl MotionConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InteractionKind {
+    Solid,
+    Sensor,
+}
+
+impl InteractionKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Solid => "solid",
+            Self::Sensor => "sensor",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InteractionConfig {
+    pub sensor_fraction: f32,
+}
+
+impl Default for InteractionConfig {
+    fn default() -> Self {
+        Self {
+            sensor_fraction: 0.15,
+        }
+    }
+}
+
+impl InteractionConfig {
+    pub fn validate(self) -> Result<Self, String> {
+        if !self.sensor_fraction.is_finite()
+            || self.sensor_fraction < 0.0
+            || self.sensor_fraction > 1.0
+        {
+            return Err("sensor fraction must be finite and between 0 and 1".to_owned());
+        }
+        Ok(self)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CollisionLayer(u32);
+
+impl CollisionLayer {
+    pub const WORLD: Self = Self(1 << 0);
+    pub const ACTOR: Self = Self(1 << 1);
+
+    #[must_use]
+    pub const fn from_bits(bits: u32) -> Self {
+        assert!(
+            bits.is_power_of_two(),
+            "a collision layer must contain exactly one bit"
+        );
+        Self(bits)
+    }
+
+    #[must_use]
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self.0 {
+            1 => "world",
+            2 => "actor",
+            _ => "custom",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CollisionMask(u32);
+
+impl CollisionMask {
+    pub const NONE: Self = Self(0);
+
+    #[must_use]
+    pub const fn from_bits(bits: u32) -> Self {
+        Self(bits)
+    }
+
+    #[must_use]
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+
+    #[must_use]
+    pub const fn allows(self, layer: CollisionLayer) -> bool {
+        self.0 & layer.bits() != 0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InteractionFilter {
+    pub layer: CollisionLayer,
+    pub mask: CollisionMask,
+}
+
+impl InteractionFilter {
+    #[must_use]
+    pub const fn new(layer: CollisionLayer, mask: CollisionMask) -> Self {
+        Self { layer, mask }
+    }
+
+    #[must_use]
+    pub const fn can_interact(self, other: Self) -> bool {
+        self.mask.allows(other.layer) && other.mask.allows(self.layer)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SceneEntity {
     pub body: Body,
     pub motion: MotionKind,
+    pub interaction: InteractionKind,
+    pub filter: InteractionFilter,
     pub velocity: [f32; 3],
 }
 
@@ -178,37 +295,57 @@ pub struct SceneEntity {
 pub struct Simulation {
     config: Config,
     motion_config: MotionConfig,
+    interaction_config: InteractionConfig,
     entities: Vec<SceneEntity>,
     frame: u64,
 }
 
 impl Simulation {
     #[must_use]
-    pub fn new(config: Config, motion_config: MotionConfig) -> Self {
+    pub fn new(
+        config: Config,
+        motion_config: MotionConfig,
+        interaction_config: InteractionConfig,
+    ) -> Self {
         let config = config
             .validate()
             .expect("validated simulation configuration");
         let motion_config = motion_config
             .validate()
             .expect("validated motion configuration");
+        let interaction_config = interaction_config
+            .validate()
+            .expect("validated interaction configuration");
         let bodies = generate_scene(config);
-        let mut rng = SplitMix64::new(config.seed ^ 0x4D4F_5449_4F4E_5F31);
+        let mut motion_rng = SplitMix64::new(config.seed ^ 0x4D4F_5449_4F4E_5F31);
+        let mut interaction_rng = SplitMix64::new(config.seed ^ 0x494E_5445_5241_4354);
         let entities = bodies
             .into_iter()
             .map(|body| {
-                let is_dynamic = rng.unit_f32() < motion_config.dynamic_fraction;
-                if is_dynamic {
-                    SceneEntity {
-                        body,
-                        motion: MotionKind::Dynamic,
-                        velocity: random_velocity(&mut rng, motion_config.speed),
-                    }
+                let is_dynamic = motion_rng.unit_f32() < motion_config.dynamic_fraction;
+                let motion = if is_dynamic {
+                    MotionKind::Dynamic
                 } else {
-                    SceneEntity {
-                        body,
-                        motion: MotionKind::Static,
-                        velocity: [0.0; 3],
-                    }
+                    MotionKind::Static
+                };
+                let interaction = if interaction_rng.unit_f32() < interaction_config.sensor_fraction
+                {
+                    InteractionKind::Sensor
+                } else {
+                    InteractionKind::Solid
+                };
+                let filter = default_filter(motion);
+                let velocity = if is_dynamic {
+                    random_velocity(&mut motion_rng, motion_config.speed)
+                } else {
+                    [0.0; 3]
+                };
+                SceneEntity {
+                    body,
+                    motion,
+                    interaction,
+                    filter,
+                    velocity,
                 }
             })
             .collect();
@@ -216,6 +353,7 @@ impl Simulation {
         Self {
             config,
             motion_config,
+            interaction_config,
             entities,
             frame: 0,
         }
@@ -237,6 +375,11 @@ impl Simulation {
     }
 
     #[must_use]
+    pub const fn interaction_config(&self) -> InteractionConfig {
+        self.interaction_config
+    }
+
+    #[must_use]
     pub fn entities(&self) -> &[SceneEntity] {
         &self.entities
     }
@@ -254,6 +397,16 @@ impl Simulation {
             .filter(|entity| entity.motion == MotionKind::Dynamic)
             .count();
         (self.entities.len() - dynamic, dynamic)
+    }
+
+    #[must_use]
+    pub fn interaction_counts(&self) -> (usize, usize) {
+        let sensors = self
+            .entities
+            .iter()
+            .filter(|entity| entity.interaction == InteractionKind::Sensor)
+            .count();
+        (self.entities.len() - sensors, sensors)
     }
 
     pub fn step(&mut self, dt_seconds: f32) {
@@ -290,6 +443,14 @@ impl Simulation {
 
         self.frame = self.frame.saturating_add(1);
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct InteractionResult {
+    pub broad_phase: BroadPhaseResult,
+    pub pairs: Vec<Pair>,
+    pub sensor_pairs: Vec<Pair>,
+    pub filtered_out: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -372,6 +533,57 @@ pub fn run_algorithm(algorithm: Algorithm, config: Config, bodies: &[Body]) -> B
 }
 
 #[must_use]
+pub fn run_interactions(
+    algorithm: Algorithm,
+    config: Config,
+    entities: &[SceneEntity],
+) -> InteractionResult {
+    let bodies: Vec<_> = entities.iter().map(|entity| entity.body).collect();
+    let broad_phase = run_algorithm(algorithm, config, &bodies);
+    let by_id: HashMap<ColliderId, &SceneEntity> = entities
+        .iter()
+        .map(|entity| (entity.body.id, entity))
+        .collect();
+
+    assert_eq!(
+        by_id.len(),
+        entities.len(),
+        "scene entity collider IDs must be unique"
+    );
+
+    let mut pairs = Vec::new();
+    let mut sensor_pairs = Vec::new();
+    let mut filtered_out = 0;
+
+    for pair in &broad_phase.pairs {
+        let left = by_id
+            .get(&pair.a)
+            .expect("broad-phase pair must reference a scene entity");
+        let right = by_id
+            .get(&pair.b)
+            .expect("broad-phase pair must reference a scene entity");
+        if !left.filter.can_interact(right.filter) {
+            filtered_out += 1;
+            continue;
+        }
+
+        pairs.push(*pair);
+        if left.interaction == InteractionKind::Sensor
+            || right.interaction == InteractionKind::Sensor
+        {
+            sensor_pairs.push(*pair);
+        }
+    }
+
+    InteractionResult {
+        broad_phase,
+        pairs,
+        sensor_pairs,
+        filtered_out,
+    }
+}
+
+#[must_use]
 pub fn run_experiment(config: Config) -> Experiment {
     let config = config
         .validate()
@@ -397,6 +609,19 @@ pub fn run_experiment(config: Config) -> Experiment {
         objects: config.objects,
         possible_pairs,
         runs,
+    }
+}
+
+fn default_filter(motion: MotionKind) -> InteractionFilter {
+    match motion {
+        MotionKind::Static => InteractionFilter::new(
+            CollisionLayer::WORLD,
+            CollisionMask::from_bits(CollisionLayer::ACTOR.bits()),
+        ),
+        MotionKind::Dynamic => InteractionFilter::new(
+            CollisionLayer::ACTOR,
+            CollisionMask::from_bits(CollisionLayer::WORLD.bits() | CollisionLayer::ACTOR.bits()),
+        ),
     }
 }
 
@@ -482,6 +707,22 @@ impl SplitMix64 {
 mod tests {
     use super::*;
 
+    fn entity(
+        id: ColliderId,
+        center: [f32; 3],
+        motion: MotionKind,
+        interaction: InteractionKind,
+        filter: InteractionFilter,
+    ) -> SceneEntity {
+        SceneEntity {
+            body: Body::new(id, Aabb::from_center_half_extents(center, [1.0; 3])),
+            motion,
+            interaction,
+            filter,
+            velocity: [0.0; 3],
+        }
+    }
+
     #[test]
     fn scene_generation_is_deterministic() {
         let config = Config {
@@ -493,7 +734,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_motion_generation_is_deterministic() {
+    fn mixed_motion_and_interaction_generation_is_deterministic() {
         let config = Config {
             objects: 64,
             seed: 123,
@@ -503,10 +744,14 @@ mod tests {
             dynamic_fraction: 0.5,
             speed: 3.0,
         };
-        let left = Simulation::new(config, motion);
-        let right = Simulation::new(config, motion);
+        let interaction = InteractionConfig {
+            sensor_fraction: 0.25,
+        };
+        let left = Simulation::new(config, motion, interaction);
+        let right = Simulation::new(config, motion, interaction);
         assert_eq!(left.entities(), right.entities());
         assert_eq!(left.counts(), right.counts());
+        assert_eq!(left.interaction_counts(), right.interaction_counts());
     }
 
     #[test]
@@ -523,6 +768,7 @@ mod tests {
                 dynamic_fraction: 0.5,
                 speed: 4.0,
             },
+            InteractionConfig::default(),
         );
         let before = simulation.entities().to_vec();
         simulation.step(0.25);
@@ -534,6 +780,8 @@ mod tests {
             } else {
                 assert_ne!(before.body, after.body);
             }
+            assert_eq!(before.interaction, after.interaction);
+            assert_eq!(before.filter, after.filter);
         }
     }
 
@@ -552,6 +800,7 @@ mod tests {
                 dynamic_fraction: 1.0,
                 speed: 12.0,
             },
+            InteractionConfig::default(),
         );
         for _ in 0..200 {
             simulation.step(1.0 / 30.0);
@@ -562,6 +811,71 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn default_layer_matrix_rejects_world_world_but_allows_actor_pairs() {
+        let world = default_filter(MotionKind::Static);
+        let actor = default_filter(MotionKind::Dynamic);
+        assert!(!world.can_interact(world));
+        assert!(world.can_interact(actor));
+        assert!(actor.can_interact(world));
+        assert!(actor.can_interact(actor));
+    }
+
+    #[test]
+    fn interaction_kind_is_orthogonal_to_layer_filtering() {
+        let actor_filter = default_filter(MotionKind::Dynamic);
+        let solid = entity(
+            1,
+            [0.0; 3],
+            MotionKind::Dynamic,
+            InteractionKind::Solid,
+            actor_filter,
+        );
+        let sensor = entity(
+            2,
+            [0.5, 0.0, 0.0],
+            MotionKind::Dynamic,
+            InteractionKind::Sensor,
+            actor_filter,
+        );
+        let result = run_interactions(Algorithm::Naive, Config::default(), &[solid, sensor]);
+        assert_eq!(result.pairs, vec![Pair::new(1, 2)]);
+        assert_eq!(result.sensor_pairs, vec![Pair::new(1, 2)]);
+    }
+
+    #[test]
+    fn interaction_matrix_filters_overlapping_world_pairs() {
+        let world_filter = default_filter(MotionKind::Static);
+        let actor_filter = default_filter(MotionKind::Dynamic);
+        let entities = [
+            entity(
+                1,
+                [0.0; 3],
+                MotionKind::Static,
+                InteractionKind::Solid,
+                world_filter,
+            ),
+            entity(
+                2,
+                [0.5, 0.0, 0.0],
+                MotionKind::Static,
+                InteractionKind::Solid,
+                world_filter,
+            ),
+            entity(
+                3,
+                [0.25, 0.0, 0.0],
+                MotionKind::Dynamic,
+                InteractionKind::Solid,
+                actor_filter,
+            ),
+        ];
+        let result = run_interactions(Algorithm::Naive, Config::default(), &entities);
+        assert_eq!(result.broad_phase.pairs.len(), 3);
+        assert_eq!(result.filtered_out, 1);
+        assert_eq!(result.pairs, vec![Pair::new(1, 3), Pair::new(2, 3)]);
     }
 
     #[test]
@@ -591,13 +905,45 @@ mod tests {
             scenario: Scenario::Clustered,
             ..Config::default()
         };
-        let mut simulation = Simulation::new(config, MotionConfig::default());
+        let mut simulation = Simulation::new(
+            config,
+            MotionConfig::default(),
+            InteractionConfig::default(),
+        );
         for _ in 0..20 {
             simulation.step(1.0 / 30.0);
             let bodies = simulation.bodies();
             let expected = run_algorithm(Algorithm::Naive, config, &bodies).pairs;
             for algorithm in Algorithm::ALL.into_iter().skip(1) {
                 assert_eq!(run_algorithm(algorithm, config, &bodies).pairs, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn filtered_interactions_match_across_broad_phases() {
+        let config = Config {
+            objects: 128,
+            seed: 731,
+            cell_size: 3.0,
+            scenario: Scenario::Clustered,
+            ..Config::default()
+        };
+        let mut simulation = Simulation::new(
+            config,
+            MotionConfig::default(),
+            InteractionConfig::default(),
+        );
+        for _ in 0..10 {
+            simulation.step(1.0 / 30.0);
+            let expected = run_interactions(Algorithm::Naive, config, simulation.entities());
+            for algorithm in Algorithm::ALL.into_iter().skip(1) {
+                let actual = run_interactions(algorithm, config, simulation.entities());
+                assert_eq!(actual.pairs, expected.pairs, "algorithm {algorithm:?}");
+                assert_eq!(
+                    actual.sensor_pairs, expected.sensor_pairs,
+                    "algorithm {algorithm:?}"
+                );
             }
         }
     }
