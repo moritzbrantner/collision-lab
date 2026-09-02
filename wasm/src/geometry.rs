@@ -1,4 +1,6 @@
-use geometry_kernels::{Obb2, Sphere, aabb_aabb, obb2_sat, sphere_sphere};
+use geometry_kernels::{
+    Obb2, Sphere, aabb_aabb, obb2_sat, sphere_sphere,
+};
 use serde_json::json;
 use spatial_kernels::Aabb;
 use wasm_bindgen::prelude::*;
@@ -80,11 +82,7 @@ pub fn obb2_sat_json(
     right_half_y: f32,
     right_rotation: f32,
 ) -> Result<String, JsValue> {
-    let left = Obb2::new(
-        [left_x, left_y],
-        [left_half_x, left_half_y],
-        left_rotation,
-    );
+    let left = Obb2::new([left_x, left_y], [left_half_x, left_half_y], left_rotation);
     let right = Obb2::new(
         [right_x, right_y],
         [right_half_x, right_half_y],
