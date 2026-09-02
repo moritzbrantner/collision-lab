@@ -48,7 +48,10 @@ fn custom_run_reports_reproducible_scene_and_pair_parity() {
         "half extent:    0.750",
         "seed:           123",
     ] {
-        assert!(first.lines().any(|line| line == expected), "missing {expected}");
+        assert!(
+            first.lines().any(|line| line == expected),
+            "missing {expected}"
+        );
     }
 
     assert!(first.contains("pair-set parity:       verified"));
