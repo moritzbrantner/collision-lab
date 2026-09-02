@@ -1,5 +1,5 @@
 use collision_lab::{
-    Algorithm, Config, MotionConfig, MotionKind, Scenario, Simulation, run_algorithm,
+    Algorithm, Config, InteractionConfig, MotionConfig, Scenario, Simulation, run_interactions,
 };
 use serde_json::{Value, json};
 use spatial_kernels::{Axis3, Pair, SweepAndPruneBroadPhase, UniformGridBroadPhase};
@@ -44,9 +44,10 @@ impl DemoWorld {
         }
         .validate()
         .map_err(|error| JsValue::from_str(&error))?;
+        let interaction = InteractionConfig::default();
 
         Ok(Self {
-            simulation: Simulation::new(config, motion),
+            simulation: Simulation::new(config, motion, interaction),
         })
     }
 
@@ -92,11 +93,11 @@ pub fn run_demo_json(
 fn snapshot_json(simulation: &Simulation, algorithm: &str) -> Result<String, JsValue> {
     let algorithm = Algorithm::parse(algorithm).map_err(|error| JsValue::from_str(&error))?;
     let config = simulation.config();
-    let bodies = simulation.bodies();
-    let result = run_algorithm(algorithm, config, &bodies);
+    let interaction_result = run_interactions(algorithm, config, simulation.entities());
     let possible_pairs =
         (config.objects as u64).saturating_mul(config.objects.saturating_sub(1) as u64) / 2;
     let (static_count, dynamic_count) = simulation.counts();
+    let (solid_count, sensor_count) = simulation.interaction_counts();
 
     let body_json: Vec<_> = simulation
         .entities()
@@ -106,15 +107,25 @@ fn snapshot_json(simulation: &Simulation, algorithm: &str) -> Result<String, JsV
                 "id": entity.body.id,
                 "min": entity.body.aabb.min,
                 "max": entity.body.aabb.max,
-                "motion": match entity.motion {
-                    MotionKind::Static => "static",
-                    MotionKind::Dynamic => "dynamic",
-                },
+                "motion": entity.motion.as_str(),
+                "interaction": entity.interaction.as_str(),
+                "layer": entity.filter.layer.as_str(),
+                "layerBits": entity.filter.layer.bits(),
+                "maskBits": entity.filter.mask.bits(),
                 "velocity": entity.velocity,
             })
         })
         .collect();
-    let pair_json: Vec<_> = result.pairs.iter().map(|pair| [pair.a, pair.b]).collect();
+    let pair_json: Vec<_> = interaction_result
+        .pairs
+        .iter()
+        .map(|pair| [pair.a, pair.b])
+        .collect();
+    let sensor_pair_json: Vec<_> = interaction_result
+        .sensor_pairs
+        .iter()
+        .map(|pair| [pair.a, pair.b])
+        .collect();
 
     serde_json::to_string(&json!({
         "algorithm": algorithm.as_str(),
@@ -122,13 +133,24 @@ fn snapshot_json(simulation: &Simulation, algorithm: &str) -> Result<String, JsV
         "frame": simulation.frame(),
         "bodies": body_json,
         "pairs": pair_json,
+        "sensorPairs": sensor_pair_json,
         "counts": {
             "static": static_count,
             "dynamic": dynamic_count,
+            "solid": solid_count,
+            "sensor": sensor_count,
         },
         "stats": {
-            "aabbTests": result.stats.aabb_tests,
-            "occupiedCells": result.stats.occupied_cells,
+            "aabbTests": interaction_result.broad_phase.stats.aabb_tests,
+            "occupiedCells": interaction_result.broad_phase.stats.occupied_cells,
+            "spatialOverlaps": interaction_result.broad_phase.pairs.len(),
+            "filteredOut": interaction_result.filtered_out,
+            "interactionPairs": interaction_result.pairs.len(),
+            "sensorPairs": interaction_result.sensor_pairs.len(),
+        },
+        "interactionMatrix": {
+            "world": { "world": false, "actor": true },
+            "actor": { "world": true, "actor": true },
         },
         "possiblePairs": possible_pairs,
     }))
