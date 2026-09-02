@@ -13,7 +13,7 @@ export default function HomePage() {
             Learn it. Stress it. Analyze it.
           </h1>
           <p className="mt-6 max-w-3xl text-lg leading-8 text-zinc-400">
-            Collision Lab uses the same deterministic Rust kernels in three complementary ways: tiny 2D explanations, moving 3D experiments, and measured scaling analysis.
+            Collision Lab uses deterministic collision workloads in four complementary ways: tiny 2D explanations, moving 3D experiments, measured algorithm scaling, and CPU-versus-GPU compute comparisons.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link href="/explain/" className="inline-flex rounded-xl bg-zinc-100 px-5 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-white">
@@ -25,14 +25,18 @@ export default function HomePage() {
             <Link href="/analysis/" className="inline-flex rounded-xl border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100">
               Analyze scaling
             </Link>
+            <Link href="/compute/" className="inline-flex rounded-xl border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100">
+              Compare CPU vs GPU
+            </Link>
           </div>
         </div>
 
-        <div className="mt-12 grid gap-4 sm:grid-cols-3">
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
             [String(algorithms.length), "broad-phase implementations"],
             ["exact", "pair-set parity required"],
-            ["3 modes", "explanation · experiment · analysis"],
+            ["4 modes", "explain · experiment · analysis · compute"],
+            ["2 backends", "CPU/WASM · WebGPU"],
           ].map(([value, label]) => (
             <div key={label} className="rounded-2xl border border-zinc-800 bg-zinc-900/45 p-5">
               <div className="text-xl font-semibold text-zinc-100">{value}</div>
@@ -43,7 +47,7 @@ export default function HomePage() {
       </section>
 
       <section className="border-y border-zinc-800 bg-zinc-900/25">
-        <div className="mx-auto grid max-w-6xl gap-6 px-6 py-12 lg:grid-cols-3">
+        <div className="mx-auto grid max-w-6xl gap-6 px-6 py-12 md:grid-cols-2 xl:grid-cols-4">
           <ModeCard
             href="/explain/"
             eyebrow="Explanation"
@@ -65,6 +69,13 @@ export default function HomePage() {
             copy="Measure exact AABB work across growing deterministic scenes and compare theoretical complexity with what the real implementations actually do."
             action="Analyze the algorithms →"
           />
+          <ModeCard
+            href="/compute/"
+            eyebrow="Compute"
+            title="Hold the algorithm constant. Change the machine."
+            copy="Run the same naive all-pairs workload on Rust/WASM and WebGPU, measure crossover behavior, and require exact pair-set parity between backends."
+            action="Compare CPU and GPU →"
+          />
         </div>
       </section>
 
@@ -75,7 +86,7 @@ export default function HomePage() {
             <h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">Current implementations</h2>
           </div>
           <p className="hidden max-w-md text-right text-sm leading-6 text-zinc-500 md:block">
-            Each page explains the algorithm; all three modes exercise the same Rust concepts through WebAssembly.
+            Rust remains the correctness reference; the Compute chapter adds alternative execution backends without changing what counts as the right pair set.
           </p>
         </div>
 
@@ -109,8 +120,8 @@ export default function HomePage() {
             {[
               ["01", "Generate", "Create a deterministic scene or a named teaching preset."],
               ["02", "Oracle", "Run the simple naive implementation."],
-              ["03", "Candidate", "Run each optimized broad phase."],
-              ["04", "Verify", "Require exact sorted pair-set parity, then compare work."],
+              ["03", "Candidate", "Run each optimized broad phase or alternative execution backend."],
+              ["04", "Verify", "Require exact sorted pair-set parity, then compare work or timing."],
             ].map(([number, title, copy]) => (
               <div key={number} className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
                 <div className="text-xs font-semibold text-zinc-600">{number}</div>

@@ -17,11 +17,23 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
     <html lang="en">
       <body>
         <header className="border-b border-zinc-800/80 bg-zinc-950/75 backdrop-blur">
-          <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-            <Link href="/" className="font-semibold tracking-tight text-zinc-50">
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-4">
+            <Link href="/" className="shrink-0 font-semibold tracking-tight text-zinc-50">
               collision-lab
             </Link>
-            <nav className="flex items-center gap-5 text-sm text-zinc-400">
+            <nav className="flex flex-wrap items-center justify-end gap-x-5 gap-y-2 text-sm text-zinc-400">
+              <Link href="/explain/" className="transition hover:text-zinc-50">
+                Explanation
+              </Link>
+              <Link href="/demo/" className="transition hover:text-zinc-50">
+                Experiment
+              </Link>
+              <Link href="/analysis/" className="transition hover:text-zinc-50">
+                Analysis
+              </Link>
+              <Link href="/compute/" className="transition hover:text-zinc-50">
+                Compute
+              </Link>
               <Link href="/#algorithms" className="transition hover:text-zinc-50">
                 Algorithms
               </Link>
