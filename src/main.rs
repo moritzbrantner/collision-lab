@@ -35,7 +35,9 @@ fn main() {
     println!("fat margin:     {:.3}", config.fat_margin);
     println!("seed:           {}", config.seed);
     println!();
-    println!("algorithm            AABB tests      overlaps      occupied cells      reduction      elapsed");
+    println!(
+        "algorithm            AABB tests      overlaps      occupied cells      reduction      elapsed"
+    );
     for run in &experiment.runs {
         let occupied = run
             .result
@@ -66,12 +68,8 @@ fn parse_config(args: Vec<String>) -> Result<Config, String> {
             "--cell-size" => config.cell_size = parse(&next_value(&mut args, &flag)?, &flag)?,
             "--fat-margin" => config.fat_margin = parse(&next_value(&mut args, &flag)?, &flag)?,
             "--seed" => config.seed = parse(&next_value(&mut args, &flag)?, &flag)?,
-            "--world-extent" => {
-                config.world_extent = parse(&next_value(&mut args, &flag)?, &flag)?
-            }
-            "--half-extent" => {
-                config.half_extent = parse(&next_value(&mut args, &flag)?, &flag)?
-            }
+            "--world-extent" => config.world_extent = parse(&next_value(&mut args, &flag)?, &flag)?,
+            "--half-extent" => config.half_extent = parse(&next_value(&mut args, &flag)?, &flag)?,
             "--scenario" => config.scenario = Scenario::parse(&next_value(&mut args, &flag)?)?,
             _ => return Err(format!("unknown option `{flag}`")),
         }
@@ -81,7 +79,8 @@ fn parse_config(args: Vec<String>) -> Result<Config, String> {
 }
 
 fn next_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<String, String> {
-    args.next().ok_or_else(|| format!("missing value for {flag}"))
+    args.next()
+        .ok_or_else(|| format!("missing value for {flag}"))
 }
 
 fn parse<T>(value: &str, flag: &str) -> Result<T, String>
