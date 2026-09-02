@@ -32,6 +32,8 @@ fn main() {
     println!("objects:        {}", experiment.objects);
     println!("possible pairs: {}", experiment.possible_pairs);
     println!("cell size:      {:.3}", config.cell_size);
+    println!("world extent:   {:.3}", config.world_extent);
+    println!("half extent:    {:.3}", config.half_extent);
     println!("seed:           {}", config.seed);
     println!();
     println!("algorithm       AABB tests      overlaps      occupied cells      elapsed");
