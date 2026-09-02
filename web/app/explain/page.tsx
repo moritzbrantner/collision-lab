@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { DynamicAabbExplanation } from "../../components/dynamic-aabb-explanation";
 import { ExplanationMode } from "../../components/explanation-mode";
 import { StaticBvhExplanation } from "../../components/static-bvh-explanation";
 
@@ -26,7 +27,7 @@ export default function ExplainPage() {
           Understand the idea before scaling it up.
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-zinc-400">
-          Start with a handful of labeled objects and walk through each decision. The first lessons compare flat broad phases on one shared scene; hierarchy lessons then get their own deliberately sparse scenes so pruning is visually unmistakable.
+          Start with a handful of labeled objects and walk through each decision. Flat algorithms share one scene; hierarchy lessons use purpose-built deterministic scenes so pruning, slack, and structural updates are visually unmistakable.
         </p>
       </div>
 
@@ -36,7 +37,7 @@ export default function ExplainPage() {
 
       <div className="mt-14">
         <div className="mb-6 max-w-3xl">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Next concept · Hierarchies</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Hierarchy lesson · Static</p>
           <h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">Static BVH: reject groups, not objects.</h2>
           <p className="mt-3 leading-7 text-zinc-500">
             This lesson switches to eight sparse objects because the important idea is hierarchical: a single parent-bound test can prove that several descendant pairs are impossible. Step through the actual Rust traversal below; orange node frames mark a whole-subtree rejection.
@@ -45,11 +46,22 @@ export default function ExplainPage() {
         <StaticBvhExplanation />
       </div>
 
+      <div className="mt-14">
+        <div className="mb-6 max-w-3xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Hierarchy lesson · Dynamic</p>
+          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">Dynamic AABB tree: reserve space for motion.</h2>
+          <p className="mt-3 leading-7 text-zinc-500">
+            A moving object does not need to restructure the hierarchy every frame. Its enlarged fat AABB acts as a reserve. Advance the deterministic Rust simulation until the exact collider finally escapes that reserve and must be reinserted.
+          </p>
+        </div>
+        <DynamicAabbExplanation />
+      </div>
+
       <section className="mt-12 grid gap-4 md:grid-cols-3">
         {[
-          ["Purpose-built scenes", "Flat algorithms share one six-object comparison scene; hierarchy lessons use tiny scenes chosen to expose pruning clearly."],
-          ["Rust-backed", "Overlap results, memberships, active sets, BVH nodes, and traversal decisions come from the same Rust/WASM kernels used elsewhere."],
-          ["One idea at a time", "Explanation mode deliberately trades scale for clarity; the Experiment and Analysis modes handle realistic workloads."],
+          ["Purpose-built scenes", "Flat algorithms share one comparison scene; hierarchy lessons use tiny deterministic scenes chosen to expose each structural idea clearly."],
+          ["Rust-backed", "Overlap results, memberships, active sets, BVH traversal, fat bounds, and reinsertion decisions come from the same Rust/WASM kernels used elsewhere."],
+          ["One idea at a time", "Explanation mode deliberately trades scale for clarity; the Experiment and Analysis modes handle realistic workloads and quantitative tradeoffs."],
         ].map(([title, copy]) => (
           <div key={title} className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
             <h2 className="font-semibold text-zinc-200">{title}</h2>
