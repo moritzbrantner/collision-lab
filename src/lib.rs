@@ -185,7 +185,9 @@ pub struct Simulation {
 impl Simulation {
     #[must_use]
     pub fn new(config: Config, motion_config: MotionConfig) -> Self {
-        let config = config.validate().expect("validated simulation configuration");
+        let config = config
+            .validate()
+            .expect("validated simulation configuration");
         let motion_config = motion_config
             .validate()
             .expect("validated motion configuration");
@@ -338,11 +340,12 @@ pub fn generate_scene(config: Config) -> Vec<Body> {
     (0..config.objects)
         .map(|index| {
             let center = match config.scenario {
-                Scenario::Uniform => random_point(&mut rng, config.world_extent - config.half_extent),
-                Scenario::Clustered => clustered_point(
-                    &mut rng,
-                    config.world_extent - config.half_extent,
-                ),
+                Scenario::Uniform => {
+                    random_point(&mut rng, config.world_extent - config.half_extent)
+                }
+                Scenario::Clustered => {
+                    clustered_point(&mut rng, config.world_extent - config.half_extent)
+                }
             };
             Body::new(
                 u32::try_from(index).expect("object count was validated"),
@@ -415,10 +418,9 @@ fn random_velocity(rng: &mut SplitMix64, speed: f32) -> [f32; 3] {
     }
 
     let mut direction = [rng.signed(1.0), rng.signed(1.0), rng.signed(1.0)];
-    let length = (direction[0] * direction[0]
-        + direction[1] * direction[1]
-        + direction[2] * direction[2])
-        .sqrt();
+    let length =
+        (direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2])
+            .sqrt();
     if length <= f32::EPSILON {
         return [speed, 0.0, 0.0];
     }
