@@ -1,3 +1,7 @@
+#[cfg(not(test))]
+#[path = "geometry.rs"]
+mod geometry;
+
 use collision_lab::{Config, InteractionConfig, MotionConfig, Scenario};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

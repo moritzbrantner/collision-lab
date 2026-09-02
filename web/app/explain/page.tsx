@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AnalyticalPrimitivesExplanation } from "../../components/analytical-primitives-explanation";
 import { DynamicAabbExplanation } from "../../components/dynamic-aabb-explanation";
 import { ExplanationMode } from "../../components/explanation-mode";
 import { OctreeExplanation } from "../../components/octree-explanation";
@@ -31,7 +32,7 @@ export default function ExplainPage() {
           Understand the idea before scaling it up.
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-zinc-400">
-          Start with a handful of labeled objects and walk through each decision. Flat algorithms share one scene; hierarchy and partition lessons use purpose-built deterministic views so pruning, slack, and spatial subdivision are visually unmistakable.
+          Start with a handful of labeled objects and walk through each decision. Broad-phase lessons explain how to avoid impossible pairs; the narrow-phase chapter then asks the exact geometry question for the candidates that survive.
         </p>
       </div>
 
@@ -72,11 +73,22 @@ export default function ExplainPage() {
         <OctreeExplanation />
       </div>
 
+      <div className="mt-20 border-t border-zinc-800 pt-14">
+        <div className="mb-7 max-w-4xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">New chapter · Narrow phase</p>
+          <h2 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-100">From “maybe these are near” to “do the shapes actually intersect?”</h2>
+          <p className="mt-4 text-lg leading-8 text-zinc-500">
+            The broad phase is intentionally conservative: it should cheaply discard impossible pairs without missing real collisions. Narrow phase receives the survivors and performs shape-specific geometry. We start with primitives whose answer can be written as a small analytical formula before moving to SAT, GJK, and EPA.
+          </p>
+        </div>
+        <AnalyticalPrimitivesExplanation />
+      </div>
+
       <section className="mt-12 grid gap-4 md:grid-cols-3">
         {[
-          ["Purpose-built scenes", "Flat algorithms share one comparison scene; hierarchy and partition lessons use deterministic views chosen to expose each structural idea clearly."],
-          ["Rust-backed", "Overlap results, memberships, active sets, BVH traversal, fat bounds, reinsertion decisions, and octree child membership come from Rust/WASM."],
-          ["One idea at a time", "Explanation mode deliberately trades scale for clarity; Experiment, Analysis, and Compute handle realistic workloads and quantitative tradeoffs."],
+          ["Broad phase filters", "Grid, sweep, BVH, dynamic trees, and octrees reduce the pair set. Their job is not necessarily to understand the exact render/physics shape."],
+          ["Narrow phase decides", "Sphere and AABB analytical tests answer the exact primitive collision question for one surviving pair using Rust geometry kernels."],
+          ["Generalization path", "AABB signed axis gaps lead naturally to OBB/SAT; convex support mappings then lead to GJK and EPA."],
         ].map(([title, copy]) => (
           <div key={title} className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
             <h2 className="font-semibold text-zinc-200">{title}</h2>
