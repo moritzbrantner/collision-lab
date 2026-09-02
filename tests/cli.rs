@@ -29,8 +29,18 @@ fn run_custom_experiment() -> String {
     String::from_utf8(output.stdout).expect("collision-lab stdout should be UTF-8")
 }
 
-fn deterministic_header(output: &str) -> Vec<&str> {
-    output.lines().take_while(|line| !line.is_empty()).collect()
+fn deterministic_report(output: &str) -> Vec<String> {
+    output
+        .lines()
+        .map(|line| {
+            if line.starts_with("naive ") || line.starts_with("uniform-grid ") {
+                let fields: Vec<_> = line.split_whitespace().collect();
+                fields[..4].join(" ")
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect()
 }
 
 #[test]
@@ -38,7 +48,7 @@ fn custom_run_reports_reproducible_scene_and_pair_parity() {
     let first = run_custom_experiment();
     let second = run_custom_experiment();
 
-    assert_eq!(deterministic_header(&first), deterministic_header(&second));
+    assert_eq!(deterministic_report(&first), deterministic_report(&second));
 
     for expected in [
         "scenario:       clustered",
