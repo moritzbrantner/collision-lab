@@ -19,6 +19,9 @@ export default function ExplainPage() {
           <Link href="/analysis/" className="rounded-full border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100">
             Analysis
           </Link>
+          <Link href="/compute/" className="rounded-full border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100">
+            Compute
+          </Link>
         </div>
       </div>
 
@@ -73,7 +76,7 @@ export default function ExplainPage() {
         {[
           ["Purpose-built scenes", "Flat algorithms share one comparison scene; hierarchy and partition lessons use deterministic views chosen to expose each structural idea clearly."],
           ["Rust-backed", "Overlap results, memberships, active sets, BVH traversal, fat bounds, reinsertion decisions, and octree child membership come from Rust/WASM."],
-          ["One idea at a time", "Explanation mode deliberately trades scale for clarity; the Experiment and Analysis modes handle realistic workloads and quantitative tradeoffs."],
+          ["One idea at a time", "Explanation mode deliberately trades scale for clarity; Experiment, Analysis, and Compute handle realistic workloads and quantitative tradeoffs."],
         ].map(([title, copy]) => (
           <div key={title} className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
             <h2 className="font-semibold text-zinc-200">{title}</h2>
