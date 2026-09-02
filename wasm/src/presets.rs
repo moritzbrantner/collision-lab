@@ -1,3 +1,4 @@
+#[cfg(not(test))]
 #[path = "geometry.rs"]
 mod geometry;
 
