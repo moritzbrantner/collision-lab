@@ -1,10 +1,13 @@
+mod presets;
+
 use bvh_kernels::{DynamicAabbNodeSnapshot, DynamicAabbTree, DynamicAabbUpdateTrace};
 use bvh_trace_kernels::{StaticBvhNodeSnapshot, trace_static_bvh};
 use collision_lab::{
     Algorithm, CollisionLayer, Config, InteractionConfig, MotionConfig, MotionKind, Scenario,
-    Simulation, run_algorithm,
+    Simulation, generate_scene, run_algorithm,
 };
 use octree_kernels::{OctreeBroadPhase, OctreeNodeSnapshot};
+use presets::ScenePreset;
 use serde_json::{Value, json};
 use spatial_kernels::{Aabb, Axis3, Pair, SweepAndPruneBroadPhase, UniformGridBroadPhase};
 use wasm_bindgen::prelude::*;
@@ -207,6 +210,85 @@ pub fn run_demo_json(
         0.0,
     )?;
     world.snapshot_json(algorithm)
+}
+
+#[wasm_bindgen]
+pub fn preset_catalog_json(objects: u32) -> Result<String, JsValue> {
+    let presets: Vec<_> = ScenePreset::ALL
+        .into_iter()
+        .map(|preset| preset_config_json(preset, objects as usize))
+        .collect();
+    serde_json::to_string(&presets).map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
+#[wasm_bindgen]
+pub fn preset_analysis_json(preset: &str, objects: u32) -> Result<String, JsValue> {
+    let preset = ScenePreset::parse(preset).map_err(|error| JsValue::from_str(&error))?;
+    let preset_config = preset.config(objects as usize);
+    let config = preset_config.scene;
+    let bodies = generate_scene(config);
+    let possible_pairs =
+        (config.objects as u64).saturating_mul(config.objects.saturating_sub(1) as u64) / 2;
+    let reference = run_algorithm(Algorithm::Naive, config, &bodies);
+
+    let measurements: Vec<_> = Algorithm::ALL
+        .into_iter()
+        .map(|algorithm| {
+            let result = if algorithm == Algorithm::Naive {
+                reference.clone()
+            } else {
+                run_algorithm(algorithm, config, &bodies)
+            };
+            let reduction = if possible_pairs == 0 {
+                0.0
+            } else {
+                100.0 * (1.0 - result.stats.aabb_tests as f64 / possible_pairs as f64)
+            };
+            json!({
+                "algorithm": algorithm.as_str(),
+                "aabbTests": result.stats.aabb_tests,
+                "overlaps": result.pairs.len(),
+                "reduction": reduction,
+                "pairParity": result.pairs == reference.pairs,
+            })
+        })
+        .collect();
+
+    serde_json::to_string(&json!({
+        "preset": preset_config_json(preset, config.objects),
+        "possiblePairs": possible_pairs,
+        "overlaps": reference.pairs.len(),
+        "pairParity": measurements.iter().all(|measurement| {
+            measurement
+                .get("pairParity")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        }),
+        "measurements": measurements,
+    }))
+    .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
+fn preset_config_json(preset: ScenePreset, objects: usize) -> Value {
+    let preset_config = preset.config(objects);
+    let config = preset_config.scene;
+    json!({
+        "id": preset.as_str(),
+        "title": preset.title(),
+        "description": preset.description(),
+        "config": {
+            "objects": config.objects,
+            "scenario": config.scenario.as_str(),
+            "cellSize": config.cell_size,
+            "fatMargin": config.fat_margin,
+            "seed": config.seed,
+            "worldExtent": config.world_extent,
+            "halfExtent": config.half_extent,
+            "dynamicFraction": preset_config.motion.dynamic_fraction,
+            "speed": preset_config.motion.speed,
+            "sensorFraction": preset_config.interaction.sensor_fraction,
+        },
+    })
 }
 
 fn snapshot_json(simulation: &Simulation, algorithm: &str) -> Result<String, JsValue> {
