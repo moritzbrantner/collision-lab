@@ -6,4 +6,4 @@ license = "MIT"
 rust-version = "1.85"
 
 [dependencies]
-spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "89ffb197cafff365718db629d560a3a71ca126ee" }
+spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "9c49da1e78e396e7ed661ac43830160b178549c8" }
