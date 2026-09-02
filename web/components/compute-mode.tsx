@@ -94,15 +94,25 @@ export function ComputeMode() {
 
           try {
             enableEveryLayerPair(world);
+            const snapshot = JSON.parse(world.snapshot_json("naive")) as Snapshot;
+            if (snapshot.pairs.length !== snapshot.stats.spatialOverlaps) {
+              throw new Error(
+                `Rust oracle pair list is filtered: expected ${snapshot.stats.spatialOverlaps} spatial overlaps, received ${snapshot.pairs.length} pairs.`,
+              );
+            }
 
             const cpuSamples: number[] = [];
-            let snapshot: Snapshot | null = null;
+            let cpuOverlapCount = 0;
             for (let sample = 0; sample < SAMPLES; sample += 1) {
               const started = performance.now();
-              snapshot = JSON.parse(world.snapshot_json("naive")) as Snapshot;
+              cpuOverlapCount = world.naive_overlap_count();
               cpuSamples.push(performance.now() - started);
             }
-            if (!snapshot) throw new Error("Rust/WASM did not produce a benchmark snapshot.");
+            if (cpuOverlapCount !== snapshot.stats.spatialOverlaps) {
+              throw new Error(
+                `Rust benchmark/oracle mismatch: benchmark returned ${cpuOverlapCount}, snapshot returned ${snapshot.stats.spatialOverlaps}.`,
+              );
+            }
 
             const oracleBitset = pairBitset(snapshot);
             const aabbs = packAabbs(snapshot.bodies);
@@ -151,11 +161,20 @@ export function ComputeMode() {
   }, [scenario]);
 
   const crossover = useMemo(
-    () => rows.find((row) => row.gpu && row.gpu.totalMs < row.cpuMs) ?? null,
+    () =>
+      rows.find(
+        (row) => row.parity === true && row.gpu !== null && row.gpu.totalMs < row.cpuMs,
+      ) ?? null,
     [rows],
   );
   const finalRow = rows.at(-1);
-  const allParity = rows.length > 0 && rows.every((row) => row.parity !== false);
+  const parityStatus = rows.some((row) => row.parity === false)
+    ? "failed"
+    : rows.some((row) => row.parity === true)
+      ? "passing"
+      : progress === COUNTS.length && gpuUnavailable
+        ? "unavailable"
+        : "pending";
 
   return (
     <div className="space-y-8">
@@ -199,11 +218,11 @@ export function ComputeMode() {
           <MetricCard
             label="First GPU win"
             value={crossover ? `${crossover.objects.toLocaleString()} objects` : "not yet"}
-            detail="First measured point where end-to-end GPU time is below the CPU/WASM host-visible path."
+            detail="First parity-valid point where end-to-end GPU time is below the minimal Rust/WASM naive benchmark call."
           />
           <MetricCard
             label="Exact parity"
-            value={rows.length === 0 ? "pending" : allParity ? "passing" : "failed"}
+            value={parityStatus}
             detail="A compact bitset represents every overlapping pair, not just the pair count."
           />
         </div>
@@ -291,7 +310,7 @@ export function ComputeMode() {
         <ComputeNote
           title="Next comparison: uniform grid"
           copy={
-            finalRow?.gpu
+            finalRow?.gpu && finalRow.parity === true
               ? `At ${finalRow.objects.toLocaleString()} objects the measured GPU/CPU total-time ratio is ${(finalRow.gpu.totalMs / finalRow.cpuMs).toFixed(2)}×. The next useful experiment is CPU grid vs GPU grid so hardware and algorithmic gains can be separated.`
               : "The next useful experiment is CPU grid vs GPU grid so hardware and algorithmic gains can be separated."
           }
@@ -302,10 +321,10 @@ export function ComputeMode() {
         <h2 className="text-lg font-semibold text-zinc-100">Measurement contract</h2>
         <div className="mt-4 grid gap-4 text-sm leading-6 text-zinc-500 md:grid-cols-2">
           <p>
-            Scene generation stays in Rust and uses seed 42. World volume grows with object count so average density stays roughly constant. Before timing, every collision-layer combination is enabled so the Rust naive pair list is the complete AABB-overlap oracle.
+            Scene generation stays in Rust and uses seed 42. World volume grows with object count so average density stays roughly constant. Every collision-layer combination is enabled before taking the full Rust snapshot so its pair list is the complete AABB-overlap oracle.
           </p>
           <p>
-            The CPU number is the median wall-clock cost of the current host-visible Rust/WASM snapshot path, including result serialization and parsing. It is deliberately labeled as such rather than pretending to be a kernel-only timer. GPU timestamp queries, when available, provide the narrower compute-pass number.
+            The CPU number is the median wall-clock cost of a minimal Rust/WASM entry point that runs only the naive broad phase and returns its overlap count. Scene generation and JSON snapshot serialization/parsing are outside the timer. GPU total likewise starts after the deterministic AABBs have been packed, but includes GPU buffer allocation, upload, dispatch, synchronization, readback, and result decoding.
           </p>
         </div>
       </section>
@@ -414,7 +433,7 @@ function TimingChart({ rows }: { rows: ComputeRow[] }) {
     return top + plotHeight * (1 - (log - minLog) / (maxLog - minLog));
   };
   const series = [
-    { key: "cpu", label: "CPU/WASM total", stroke: "#a1a1aa", value: (row: ComputeRow) => row.cpuMs },
+    { key: "cpu", label: "CPU/WASM naive", stroke: "#a1a1aa", value: (row: ComputeRow) => row.cpuMs },
     { key: "gpu", label: "WebGPU total", stroke: "#22d3ee", value: (row: ComputeRow) => row.gpu?.totalMs ?? null },
     { key: "compute", label: "GPU pass", stroke: "#34d399", value: (row: ComputeRow) => row.gpu?.computeMs ?? null },
   ] as const;
