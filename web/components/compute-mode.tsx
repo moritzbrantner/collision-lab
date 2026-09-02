@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 
 import initWasm, { DemoWorld } from "../lib/wasm-pkg/collision_wasm";
 import {
+  createWebGpuGridRunner,
+  type WebGpuGridMeasurement,
+  type WebGpuGridRunner,
+} from "../lib/webgpu-grid";
+import {
   createWebGpuNaiveRunner,
   type WebGpuNaiveMeasurement,
   type WebGpuNaiveRunner,
@@ -22,6 +27,8 @@ type Snapshot = {
   pairs: [number, number][];
   possiblePairs: number;
   stats: {
+    aabbTests: number;
+    occupiedCells: number | null;
     spatialOverlaps: number;
   };
 };
@@ -30,48 +37,78 @@ type InteractionMatrix = {
   layers: { bits: number }[];
 };
 
-type GpuMeasurement = Omit<WebGpuNaiveMeasurement, "bitset">;
+type GpuNaiveSummary = Omit<WebGpuNaiveMeasurement, "bitset">;
+type GpuGridSummary = Omit<WebGpuGridMeasurement, "bitset">;
 
 type ComputeRow = {
   objects: number;
   possiblePairs: number;
   overlaps: number;
-  cpuMs: number;
-  gpu: GpuMeasurement | null;
-  parity: boolean | null;
+  cpuNaiveMs: number;
+  cpuGridMs: number;
+  cpuGridAabbTests: number;
+  cpuGridOccupiedCells: number;
+  gpuNaive: GpuNaiveSummary | null;
+  gpuGrid: GpuGridSummary | null;
+  naiveParity: boolean | null;
+  gridPairParity: boolean | null;
+  gridWorkParity: boolean | null;
 };
 
 const COUNTS = [100, 250, 500, 1000, 2500, 5000] as const;
 const SAMPLES = 3;
+const CELL_SIZE = 4;
 
 export function ComputeMode() {
   const [scenario, setScenario] = useState<Scenario>("uniform");
   const [rows, setRows] = useState<ComputeRow[]>([]);
   const [progress, setProgress] = useState(0);
-  const [gpuSetup, setGpuSetup] = useState<{ setupMs: number; timestampSupported: boolean } | null>(null);
+  const [naiveGpuSetup, setNaiveGpuSetup] = useState<{ setupMs: number; timestampSupported: boolean } | null>(null);
+  const [gridGpuSetup, setGridGpuSetup] = useState<{ setupMs: number; timestampSupported: boolean } | null>(null);
   const [gpuUnavailable, setGpuUnavailable] = useState<string | null>(null);
+  const [gridGpuUnavailable, setGridGpuUnavailable] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    let runner: WebGpuNaiveRunner | null = null;
+    let naiveRunner: WebGpuNaiveRunner | null = null;
+    let gridRunner: WebGpuGridRunner | null = null;
 
     const run = async () => {
       setRows([]);
       setProgress(0);
-      setGpuSetup(null);
+      setNaiveGpuSetup(null);
+      setGridGpuSetup(null);
       setGpuUnavailable(null);
+      setGridGpuUnavailable(null);
       setError(null);
 
       try {
         await initWasm();
         try {
-          runner = await createWebGpuNaiveRunner();
+          naiveRunner = await createWebGpuNaiveRunner();
           if (!cancelled) {
-            setGpuSetup({ setupMs: runner.setupMs, timestampSupported: runner.timestampSupported });
+            setNaiveGpuSetup({
+              setupMs: naiveRunner.setupMs,
+              timestampSupported: naiveRunner.timestampSupported,
+            });
           }
         } catch (reason) {
           if (!cancelled) setGpuUnavailable(String(reason));
+        }
+
+        if (naiveRunner) {
+          try {
+            gridRunner = await createWebGpuGridRunner();
+            if (!cancelled) {
+              setGridGpuSetup({
+                setupMs: gridRunner.setupMs,
+                timestampSupported: gridRunner.timestampSupported,
+              });
+            }
+          } catch (reason) {
+            if (!cancelled) setGridGpuUnavailable(String(reason));
+          }
         }
 
         const nextRows: ComputeRow[] = [];
@@ -82,7 +119,7 @@ export function ComputeMode() {
           const world = new DemoWorld(
             scenario,
             objects,
-            4,
+            CELL_SIZE,
             1.5,
             42,
             worldExtent,
@@ -94,48 +131,94 @@ export function ComputeMode() {
 
           try {
             enableEveryLayerPair(world);
-            const snapshot = JSON.parse(world.snapshot_json("naive")) as Snapshot;
-            if (snapshot.pairs.length !== snapshot.stats.spatialOverlaps) {
-              throw new Error(
-                `Rust oracle pair list is filtered: expected ${snapshot.stats.spatialOverlaps} spatial overlaps, received ${snapshot.pairs.length} pairs.`,
-              );
+            const naiveSnapshot = JSON.parse(world.snapshot_json("naive")) as Snapshot;
+            const gridSnapshot = JSON.parse(world.snapshot_json("grid")) as Snapshot;
+            assertRustOracleContract(naiveSnapshot, gridSnapshot);
+
+            const oracleBitset = pairBitset(naiveSnapshot);
+            const rustGridBitset = pairBitset(gridSnapshot);
+            if (!bitsetsEqual(oracleBitset, rustGridBitset)) {
+              throw new Error(`Rust uniform-grid pair parity failed at ${objects.toLocaleString()} objects.`);
+            }
+            if (gridSnapshot.stats.occupiedCells == null) {
+              throw new Error("Rust uniform-grid snapshot did not report occupied cells.");
             }
 
-            const cpuSamples: number[] = [];
-            let cpuOverlapCount = 0;
+            const cpuNaiveSamples: number[] = [];
+            const cpuGridSamples: number[] = [];
+            let cpuNaiveCount = 0;
+            let cpuGridCount = 0;
             for (let sample = 0; sample < SAMPLES; sample += 1) {
-              const started = performance.now();
-              cpuOverlapCount = world.naive_overlap_count();
-              cpuSamples.push(performance.now() - started);
+              let started = performance.now();
+              cpuNaiveCount = world.naive_overlap_count();
+              cpuNaiveSamples.push(performance.now() - started);
+
+              started = performance.now();
+              cpuGridCount = world.uniform_grid_overlap_count();
+              cpuGridSamples.push(performance.now() - started);
             }
-            if (cpuOverlapCount !== snapshot.stats.spatialOverlaps) {
+            if (
+              cpuNaiveCount !== naiveSnapshot.stats.spatialOverlaps ||
+              cpuGridCount !== naiveSnapshot.stats.spatialOverlaps
+            ) {
               throw new Error(
-                `Rust benchmark/oracle mismatch: benchmark returned ${cpuOverlapCount}, snapshot returned ${snapshot.stats.spatialOverlaps}.`,
+                `Rust benchmark/oracle mismatch at ${objects.toLocaleString()} objects.`,
               );
             }
 
-            const oracleBitset = pairBitset(snapshot);
-            const aabbs = packAabbs(snapshot.bodies);
-            const gpuSamples: WebGpuNaiveMeasurement[] = [];
-            let parity: boolean | null = null;
+            const aabbs = packAabbs(naiveSnapshot.bodies);
+            const naiveGpuSamples: WebGpuNaiveMeasurement[] = [];
+            const gridGpuSamples: WebGpuGridMeasurement[] = [];
+            let naiveParity: boolean | null = null;
+            let gridPairParity: boolean | null = null;
+            let gridWorkParity: boolean | null = null;
 
-            if (runner) {
+            if (naiveRunner) {
               for (let sample = 0; sample < SAMPLES; sample += 1) {
-                const measurement = await runner.run(aabbs, objects);
-                gpuSamples.push(measurement);
-                parity = (parity ?? true) && bitsetsEqual(oracleBitset, measurement.bitset);
+                const measurement = await naiveRunner.run(aabbs, objects);
+                naiveGpuSamples.push(measurement);
+                naiveParity =
+                  (naiveParity ?? true) && bitsetsEqual(oracleBitset, measurement.bitset);
                 if (cancelled) return;
               }
             }
 
-            const gpuMedian = gpuSamples.length > 0 ? medianGpuMeasurement(gpuSamples) : null;
+            if (gridRunner) {
+              for (let sample = 0; sample < SAMPLES; sample += 1) {
+                const measurement = await gridRunner.run(aabbs, objects, CELL_SIZE);
+                gridGpuSamples.push(measurement);
+                gridPairParity =
+                  (gridPairParity ?? true) && bitsetsEqual(oracleBitset, measurement.bitset);
+                gridWorkParity =
+                  (gridWorkParity ?? true) &&
+                  measurement.aabbTests === gridSnapshot.stats.aabbTests &&
+                  measurement.occupiedCells === gridSnapshot.stats.occupiedCells;
+                if (cancelled) return;
+              }
+            }
+
+            const gpuNaive =
+              naiveGpuSamples.length > 0
+                ? omitNaiveBitset(medianByTotal(naiveGpuSamples))
+                : null;
+            const gpuGrid =
+              gridGpuSamples.length > 0
+                ? omitGridBitset(medianByTotal(gridGpuSamples))
+                : null;
+
             nextRows.push({
               objects,
-              possiblePairs: snapshot.possiblePairs,
-              overlaps: snapshot.stats.spatialOverlaps,
-              cpuMs: median(cpuSamples),
-              gpu: gpuMedian ? omitBitset(gpuMedian) : null,
-              parity,
+              possiblePairs: naiveSnapshot.possiblePairs,
+              overlaps: naiveSnapshot.stats.spatialOverlaps,
+              cpuNaiveMs: median(cpuNaiveSamples),
+              cpuGridMs: median(cpuGridSamples),
+              cpuGridAabbTests: gridSnapshot.stats.aabbTests,
+              cpuGridOccupiedCells: gridSnapshot.stats.occupiedCells,
+              gpuNaive,
+              gpuGrid,
+              naiveParity,
+              gridPairParity,
+              gridWorkParity,
             });
           } finally {
             world.free();
@@ -150,7 +233,8 @@ export function ComputeMode() {
       } catch (reason) {
         if (!cancelled) setError(String(reason));
       } finally {
-        runner?.destroy();
+        naiveRunner?.destroy();
+        gridRunner?.destroy();
       }
     };
 
@@ -160,21 +244,43 @@ export function ComputeMode() {
     };
   }, [scenario]);
 
-  const crossover = useMemo(
+  const naiveGpuCrossover = useMemo(
     () =>
       rows.find(
-        (row) => row.parity === true && row.gpu !== null && row.gpu.totalMs < row.cpuMs,
+        (row) =>
+          row.naiveParity === true &&
+          row.gpuNaive !== null &&
+          row.gpuNaive.totalMs < row.cpuNaiveMs,
+      ) ?? null,
+    [rows],
+  );
+  const gridGpuCrossover = useMemo(
+    () =>
+      rows.find(
+        (row) =>
+          row.gridPairParity === true &&
+          row.gridWorkParity === true &&
+          row.gpuGrid !== null &&
+          row.gpuGrid.totalMs < row.cpuGridMs,
       ) ?? null,
     [rows],
   );
   const finalRow = rows.at(-1);
-  const parityStatus = rows.some((row) => row.parity === false)
-    ? "failed"
-    : rows.some((row) => row.parity === true)
-      ? "passing"
-      : progress === COUNTS.length && gpuUnavailable
-        ? "unavailable"
-        : "pending";
+  const winner = finalRow ? fastestBackend(finalRow) : null;
+  const naiveParityStatus = verificationStatus(
+    rows.map((row) => row.naiveParity),
+    progress,
+    Boolean(gpuUnavailable),
+  );
+  const gridParityStatus = verificationStatus(
+    rows.map((row) =>
+      row.gridPairParity == null || row.gridWorkParity == null
+        ? null
+        : row.gridPairParity && row.gridWorkParity,
+    ),
+    progress,
+    Boolean(gpuUnavailable || gridGpuUnavailable),
+  );
 
   return (
     <div className="space-y-8">
@@ -182,13 +288,13 @@ export function ComputeMode() {
         <div className="flex flex-wrap items-end justify-between gap-5">
           <div className="max-w-3xl">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">
-              Same algorithm · different machine
+              Algorithm × execution backend
             </p>
             <h2 className="mt-2 text-2xl font-semibold text-zinc-100">
-              When does massively parallel brute force become worthwhile?
+              Which matters more: a better algorithm, or a more parallel machine?
             </h2>
             <p className="mt-3 leading-7 text-zinc-500">
-              Both sides run the same naive all-pairs AABB test over the same deterministic Rust-generated scene. The CPU path is Rust compiled to WASM; the GPU path is a WebGPU compute shader. Every GPU result must match the Rust pair set exactly.
+              Every point uses the same deterministic Rust-generated AABBs. Compare naive all-pairs and a uniform grid on Rust/WASM and WebGPU, while exact pair parity keeps performance claims subordinate to correctness.
             </p>
           </div>
           <label className="text-xs font-semibold text-zinc-400">
@@ -206,30 +312,35 @@ export function ComputeMode() {
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard
-            label="GPU setup"
-            value={gpuSetup ? formatMs(gpuSetup.setupMs) : gpuUnavailable ? "unavailable" : "initializing"}
-            detail="Adapter, device, shader compilation, and pipeline creation; excluded from each point."
+            label="Fastest at largest scene"
+            value={winner?.label ?? "pending"}
+            detail={winner && finalRow ? `${formatMs(winner.ms)} at ${finalRow.objects.toLocaleString()} objects.` : "Wait for the largest deterministic scene."}
           />
           <MetricCard
-            label="GPU pass timing"
-            value={gpuSetup ? (gpuSetup.timestampSupported ? "timestamp query" : "unavailable") : "—"}
-            detail="Pass-only timing requires the adapter's timestamp-query feature; end-to-end GPU timing remains available without it."
+            label="Naive pair parity"
+            value={naiveParityStatus}
+            detail="WebGPU brute force must match every Rust naive overlap bit exactly."
           />
           <MetricCard
-            label="First GPU win"
-            value={crossover ? `${crossover.objects.toLocaleString()} objects` : "not yet"}
-            detail="First parity-valid point where end-to-end GPU time is below the minimal Rust/WASM naive benchmark call."
+            label="Grid pair + work parity"
+            value={gridParityStatus}
+            detail="WebGPU grid must match both the overlap bitset and Rust's unique AABB-test / occupied-cell counts."
           />
           <MetricCard
-            label="Exact parity"
-            value={parityStatus}
-            detail="A compact bitset represents every overlapping pair, not just the pair count."
+            label="GPU pipeline setup"
+            value={formatSetup(naiveGpuSetup, gridGpuSetup, gpuUnavailable)}
+            detail="Adapter/device creation and pipeline compilation stay outside each benchmark point."
           />
         </div>
 
         {gpuUnavailable && (
           <p className="mt-5 rounded-xl border border-amber-900/50 bg-amber-950/20 p-4 text-sm leading-6 text-amber-200">
-            {gpuUnavailable} CPU measurements will still run. Open this page in a WebGPU-capable browser over HTTPS to enable the comparison.
+            {gpuUnavailable} CPU measurements will still run. Open this page in a WebGPU-capable browser over HTTPS to enable GPU comparisons.
+          </p>
+        )}
+        {gridGpuUnavailable && (
+          <p className="mt-5 rounded-xl border border-amber-900/50 bg-amber-950/20 p-4 text-sm leading-6 text-amber-200">
+            WebGPU naive is available, but the uniform-grid backend could not initialize: {gridGpuUnavailable}
           </p>
         )}
         {error && (
@@ -244,16 +355,16 @@ export function ComputeMode() {
 
         {progress < COUNTS.length && !error && (
           <p className="mt-4 text-sm text-zinc-500">
-            Measuring {progress + 1} of {COUNTS.length} deterministic scenes · median of {SAMPLES} samples per point…
+            Measuring {progress + 1} of {COUNTS.length} deterministic scenes · median of {SAMPLES} samples per backend…
           </p>
         )}
       </section>
 
       <section className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950/70">
         <div className="border-b border-zinc-800 px-5 py-4 sm:px-7">
-          <h2 className="font-semibold text-zinc-100">CPU/WASM vs WebGPU naive all-pairs</h2>
+          <h2 className="font-semibold text-zinc-100">Four-way timing comparison</h2>
           <p className="mt-1 max-w-4xl text-sm leading-6 text-zinc-500">
-            GPU total includes buffer allocation/upload, dispatch, readback, and bit counting. “GPU pass” isolates the compute pass when timestamp queries are supported. Submit→map includes the pass plus queueing, the output copy, and synchronization, so it is not additive with GPU pass.
+            CPU values time minimal scalar-return WASM entry points. GPU totals include per-point preparation, upload, dispatch, synchronization, readback, and decoding; device and pipeline creation are excluded.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -261,14 +372,54 @@ export function ComputeMode() {
             <thead className="bg-zinc-900/50 text-xs uppercase tracking-wide text-zinc-600">
               <tr>
                 <th className="px-5 py-3">Objects</th>
+                <th className="px-5 py-3">CPU naive</th>
+                <th className="px-5 py-3">WebGPU naive</th>
+                <th className="px-5 py-3">CPU grid</th>
+                <th className="px-5 py-3">WebGPU grid</th>
+                <th className="px-5 py-3">GPU grid pass</th>
+                <th className="px-5 py-3">Fastest valid</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {rows.map((row) => {
+                const fastest = fastestBackend(row);
+                return (
+                  <tr key={row.objects}>
+                    <td className="px-5 py-4 font-mono text-zinc-200">{row.objects.toLocaleString()}</td>
+                    <td className="px-5 py-4 font-mono text-zinc-200">{formatMs(row.cpuNaiveMs)}</td>
+                    <td className="px-5 py-4 font-mono text-zinc-200">{row.gpuNaive ? formatMs(row.gpuNaive.totalMs) : "—"}</td>
+                    <td className="px-5 py-4 font-mono text-zinc-200">{formatMs(row.cpuGridMs)}</td>
+                    <td className="px-5 py-4 font-mono text-zinc-200">{row.gpuGrid ? formatMs(row.gpuGrid.totalMs) : "—"}</td>
+                    <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid?.computeMs == null ? "—" : formatMs(row.gpuGrid.computeMs)}</td>
+                    <td className="px-5 py-4 font-semibold text-zinc-300">{fastest.label}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950/70">
+        <div className="border-b border-zinc-800 px-5 py-4 sm:px-7">
+          <h2 className="font-semibold text-zinc-100">Uniform-grid work parity</h2>
+          <p className="mt-1 max-w-4xl text-sm leading-6 text-zinc-500">
+            Rust and WebGPU insert each body into every touched cell and globally deduplicate candidate pairs before exact AABB tests. Equal work counters are a stronger check than equal final overlap counts alone.
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-[70rem] w-full text-left text-sm">
+            <thead className="bg-zinc-900/50 text-xs uppercase tracking-wide text-zinc-600">
+              <tr>
+                <th className="px-5 py-3">Objects</th>
                 <th className="px-5 py-3">Possible pairs</th>
-                <th className="px-5 py-3">Overlaps</th>
-                <th className="px-5 py-3">CPU/WASM</th>
-                <th className="px-5 py-3">GPU total</th>
-                <th className="px-5 py-3">Prepare/upload</th>
-                <th className="px-5 py-3">GPU pass</th>
-                <th className="px-5 py-3">Submit→map</th>
-                <th className="px-5 py-3">Parity</th>
+                <th className="px-5 py-3">Grid AABB tests CPU</th>
+                <th className="px-5 py-3">Grid AABB tests GPU</th>
+                <th className="px-5 py-3">Eliminated</th>
+                <th className="px-5 py-3">Occupied cells CPU/GPU</th>
+                <th className="px-5 py-3">Memberships</th>
+                <th className="px-5 py-3">Pair parity</th>
+                <th className="px-5 py-3">Work parity</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800">
@@ -276,21 +427,13 @@ export function ComputeMode() {
                 <tr key={row.objects}>
                   <td className="px-5 py-4 font-mono text-zinc-200">{row.objects.toLocaleString()}</td>
                   <td className="px-5 py-4 font-mono text-zinc-400">{row.possiblePairs.toLocaleString()}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.overlaps.toLocaleString()}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-200">{formatMs(row.cpuMs)}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-200">{row.gpu ? formatMs(row.gpu.totalMs) : "—"}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpu ? formatMs(row.gpu.prepareUploadMs) : "—"}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpu?.computeMs == null ? "—" : formatMs(row.gpu.computeMs)}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpu ? formatMs(row.gpu.submitReadbackMs) : "—"}</td>
-                  <td className="px-5 py-4">
-                    {row.parity == null ? (
-                      <span className="text-zinc-600">—</span>
-                    ) : row.parity ? (
-                      <span className="font-semibold text-emerald-300">exact</span>
-                    ) : (
-                      <span className="font-semibold text-red-300">mismatch</span>
-                    )}
-                  </td>
+                  <td className="px-5 py-4 font-mono text-zinc-400">{row.cpuGridAabbTests.toLocaleString()}</td>
+                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid ? row.gpuGrid.aabbTests.toLocaleString() : "—"}</td>
+                  <td className="px-5 py-4 font-mono text-zinc-400">{formatPercent(1 - row.cpuGridAabbTests / Math.max(1, row.possiblePairs))}</td>
+                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid ? `${row.cpuGridOccupiedCells.toLocaleString()} / ${row.gpuGrid.occupiedCells.toLocaleString()}` : `${row.cpuGridOccupiedCells.toLocaleString()} / —`}</td>
+                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid ? row.gpuGrid.memberships.toLocaleString() : "—"}</td>
+                  <td className="px-5 py-4">{ParityLabel({ value: row.gridPairParity })}</td>
+                  <td className="px-5 py-4">{ParityLabel({ value: row.gridWorkParity })}</td>
                 </tr>
               ))}
             </tbody>
@@ -298,22 +441,59 @@ export function ComputeMode() {
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950/70">
+        <div className="border-b border-zinc-800 px-5 py-4 sm:px-7">
+          <h2 className="font-semibold text-zinc-100">GPU cost breakdown</h2>
+          <p className="mt-1 max-w-4xl text-sm leading-6 text-zinc-500">
+            Pass-only values require the adapter's timestamp-query feature. Submit→map contains queueing, compute, copies, synchronization, and mapping, so it is not additive with the pass columns.
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-[76rem] w-full text-left text-sm">
+            <thead className="bg-zinc-900/50 text-xs uppercase tracking-wide text-zinc-600">
+              <tr>
+                <th className="px-5 py-3">Objects</th>
+                <th className="px-5 py-3">Naive prepare</th>
+                <th className="px-5 py-3">Naive pass</th>
+                <th className="px-5 py-3">Grid prepare</th>
+                <th className="px-5 py-3">Grid build</th>
+                <th className="px-5 py-3">Grid test</th>
+                <th className="px-5 py-3">Grid submit→map</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {rows.map((row) => (
+                <tr key={row.objects}>
+                  <td className="px-5 py-4 font-mono text-zinc-200">{row.objects.toLocaleString()}</td>
+                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuNaive ? formatMs(row.gpuNaive.prepareUploadMs) : "—"}</td>
+                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuNaive?.computeMs == null ? "—" : formatMs(row.gpuNaive.computeMs)}</td>
+                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid ? formatMs(row.gpuGrid.prepareUploadMs) : "—"}</td>
+                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid?.buildPassMs == null ? "—" : formatMs(row.gpuGrid.buildPassMs)}</td>
+                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid?.testPassMs == null ? "—" : formatMs(row.gpuGrid.testPassMs)}</td>
+                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid ? formatMs(row.gpuGrid.submitReadbackMs) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <ComputeNote
-          title="Algorithm and execution backend are separate choices"
-          copy="Naive, grid, sweep, BVH, and octree describe how collision work is organized. CPU/WASM and WebGPU describe where that work executes. This page intentionally holds the algorithm constant first."
+          title="Algorithmic gain on CPU"
+          copy={finalRow ? `At ${finalRow.objects.toLocaleString()} objects, CPU grid is ${formatRatio(finalRow.cpuNaiveMs / finalRow.cpuGridMs)} relative to CPU naive.` : "Measures how much the uniform grid gains without changing hardware."}
         />
         <ComputeNote
-          title="End-to-end matters"
-          copy="A fast shader can still lose once buffer preparation, queueing, synchronization, and readback are included. That is why the chart keeps GPU pass time and host-visible total time separate."
+          title="Parallelism gain for naive"
+          copy={naiveGpuCrossover ? `End-to-end WebGPU brute force first beats CPU brute force at the measured ${naiveGpuCrossover.objects.toLocaleString()}-object point.` : "No parity-valid end-to-end WebGPU brute-force crossover has appeared yet."}
         />
         <ComputeNote
-          title="Next comparison: uniform grid"
-          copy={
-            finalRow?.gpu && finalRow.parity === true
-              ? `At ${finalRow.objects.toLocaleString()} objects the measured GPU/CPU total-time ratio is ${(finalRow.gpu.totalMs / finalRow.cpuMs).toFixed(2)}×. The next useful experiment is CPU grid vs GPU grid so hardware and algorithmic gains can be separated.`
-              : "The next useful experiment is CPU grid vs GPU grid so hardware and algorithmic gains can be separated."
-          }
+          title="Parallelism gain for grid"
+          copy={gridGpuCrossover ? `End-to-end WebGPU grid first beats CPU grid at the measured ${gridGpuCrossover.objects.toLocaleString()}-object point.` : "No parity-and-work-valid end-to-end WebGPU-grid crossover has appeared yet."}
+        />
+        <ComputeNote
+          title="Combined gain"
+          copy={finalRow?.gpuGrid && finalRow.gridPairParity === true && finalRow.gridWorkParity === true ? `At the largest scene, WebGPU grid is ${formatRatio(finalRow.cpuNaiveMs / finalRow.gpuGrid.totalMs)} relative to CPU naive.` : "Combines algorithmic pruning with GPU parallelism once grid parity is proven."}
         />
       </section>
 
@@ -321,15 +501,40 @@ export function ComputeMode() {
         <h2 className="text-lg font-semibold text-zinc-100">Measurement contract</h2>
         <div className="mt-4 grid gap-4 text-sm leading-6 text-zinc-500 md:grid-cols-2">
           <p>
-            Scene generation stays in Rust and uses seed 42. World volume grows with object count so average density stays roughly constant. Every collision-layer combination is enabled before taking the full Rust snapshot so its pair list is the complete AABB-overlap oracle.
+            Scene generation stays in Rust with seed 42, fixed 0.6 half-extents, and a {CELL_SIZE}-unit grid. World volume grows with object count so average density stays roughly stable. Every collision-layer combination is enabled before oracle snapshots, and Rust naive remains the final pair-set reference.
           </p>
           <p>
-            The CPU number is the median wall-clock cost of a minimal Rust/WASM entry point that runs only the naive broad phase and returns its overlap count. Scene generation and JSON snapshot serialization/parsing are outside the timer. GPU total likewise starts after the deterministic AABBs have been packed, but includes GPU buffer allocation, upload, dispatch, synchronization, readback, and result decoding.
+            CPU timings use minimal Rust/WASM methods that run only the selected broad phase and return the overlap count; scene generation and JSON snapshots are outside the timer. GPU totals begin before per-point buffer preparation and include upload, dispatch, synchronization, readback, and decoding.
+          </p>
+          <p>
+            The WebGPU grid uses CPU-prepared integer cell ranges solely to preserve Rust's floor-based spatial-hash mapping exactly from the same f32 AABBs. That O(n) preparation is included in GPU total time. Cell membership insertion, candidate traversal, global pair deduplication, exact AABB tests, and overlap recording execute on the GPU.
+          </p>
+          <p>
+            Grid correctness is deliberately stronger than final-pair parity: the GPU must also reproduce Rust's number of occupied cells and unique exact AABB tests. Performance rows remain visible on mismatch for diagnosis, but mismatching GPU results are excluded from “fastest” and crossover claims.
           </p>
         </div>
       </section>
     </div>
   );
+}
+
+function assertRustOracleContract(naive: Snapshot, grid: Snapshot) {
+  if (naive.pairs.length !== naive.stats.spatialOverlaps) {
+    throw new Error(
+      `Rust naive oracle pair list is filtered: expected ${naive.stats.spatialOverlaps}, received ${naive.pairs.length}.`,
+    );
+  }
+  if (grid.pairs.length !== grid.stats.spatialOverlaps) {
+    throw new Error(
+      `Rust grid oracle pair list is filtered: expected ${grid.stats.spatialOverlaps}, received ${grid.pairs.length}.`,
+    );
+  }
+  if (
+    naive.possiblePairs !== grid.possiblePairs ||
+    naive.stats.spatialOverlaps !== grid.stats.spatialOverlaps
+  ) {
+    throw new Error("Rust naive and uniform-grid snapshots disagree before GPU comparison.");
+  }
 }
 
 function enableEveryLayerPair(world: DemoWorld) {
@@ -393,35 +598,60 @@ function median(values: number[]) {
   return sorted[Math.floor(sorted.length / 2)];
 }
 
-function medianGpuMeasurement(values: WebGpuNaiveMeasurement[]) {
-  return [...values].sort((left, right) => left.totalMs - right.totalMs)[Math.floor(values.length / 2)];
+function medianByTotal<T extends { totalMs: number }>(values: T[]) {
+  return [...values].sort((left, right) => left.totalMs - right.totalMs)[
+    Math.floor(values.length / 2)
+  ];
 }
 
-function omitBitset(measurement: WebGpuNaiveMeasurement): GpuMeasurement {
-  return {
-    overlaps: measurement.overlaps,
-    prepareUploadMs: measurement.prepareUploadMs,
-    computeMs: measurement.computeMs,
-    submitReadbackMs: measurement.submitReadbackMs,
-    decodeMs: measurement.decodeMs,
-    totalMs: measurement.totalMs,
-  };
+function omitNaiveBitset(measurement: WebGpuNaiveMeasurement): GpuNaiveSummary {
+  const { bitset: _bitset, ...summary } = measurement;
+  return summary;
+}
+
+function omitGridBitset(measurement: WebGpuGridMeasurement): GpuGridSummary {
+  const { bitset: _bitset, ...summary } = measurement;
+  return summary;
+}
+
+function fastestBackend(row: ComputeRow) {
+  const candidates = [
+    { label: "CPU naive", ms: row.cpuNaiveMs },
+    { label: "CPU grid", ms: row.cpuGridMs },
+  ];
+  if (row.naiveParity === true && row.gpuNaive) {
+    candidates.push({ label: "WebGPU naive", ms: row.gpuNaive.totalMs });
+  }
+  if (row.gridPairParity === true && row.gridWorkParity === true && row.gpuGrid) {
+    candidates.push({ label: "WebGPU grid", ms: row.gpuGrid.totalMs });
+  }
+  return candidates.reduce((best, candidate) => (candidate.ms < best.ms ? candidate : best));
+}
+
+function verificationStatus(values: (boolean | null)[], progress: number, unavailable: boolean) {
+  if (values.some((value) => value === false)) return "failed";
+  if (values.some((value) => value === true)) return "passing";
+  if (progress === COUNTS.length && unavailable) return "unavailable";
+  return "pending";
 }
 
 function TimingChart({ rows }: { rows: ComputeRow[] }) {
   const width = 900;
-  const height = 360;
+  const height = 380;
   const left = 72;
   const right = 24;
   const top = 24;
   const bottom = 52;
   const plotWidth = width - left - right;
   const plotHeight = height - top - bottom;
-  const values = rows.flatMap((row) => [
-    row.cpuMs,
-    row.gpu?.totalMs ?? 0,
-    row.gpu?.computeMs ?? 0,
-  ]).filter((value) => value > 0);
+  const values = rows
+    .flatMap((row) => [
+      row.cpuNaiveMs,
+      row.cpuGridMs,
+      row.gpuNaive?.totalMs ?? 0,
+      row.gpuGrid?.totalMs ?? 0,
+    ])
+    .filter((value) => value > 0);
   const maxMs = Math.max(1, ...values);
   const minMs = Math.max(0.001, Math.min(...values, 0.01));
   const minLog = Math.log10(minMs);
@@ -433,9 +663,30 @@ function TimingChart({ rows }: { rows: ComputeRow[] }) {
     return top + plotHeight * (1 - (log - minLog) / (maxLog - minLog));
   };
   const series = [
-    { key: "cpu", label: "CPU/WASM naive", stroke: "#a1a1aa", value: (row: ComputeRow) => row.cpuMs },
-    { key: "gpu", label: "WebGPU total", stroke: "#22d3ee", value: (row: ComputeRow) => row.gpu?.totalMs ?? null },
-    { key: "compute", label: "GPU pass", stroke: "#34d399", value: (row: ComputeRow) => row.gpu?.computeMs ?? null },
+    {
+      key: "cpu-naive",
+      label: "CPU/WASM naive",
+      stroke: "#a1a1aa",
+      value: (row: ComputeRow) => row.cpuNaiveMs,
+    },
+    {
+      key: "gpu-naive",
+      label: "WebGPU naive",
+      stroke: "#22d3ee",
+      value: (row: ComputeRow) => row.gpuNaive?.totalMs ?? null,
+    },
+    {
+      key: "cpu-grid",
+      label: "CPU/WASM grid",
+      stroke: "#f59e0b",
+      value: (row: ComputeRow) => row.cpuGridMs,
+    },
+    {
+      key: "gpu-grid",
+      label: "WebGPU grid",
+      stroke: "#34d399",
+      value: (row: ComputeRow) => row.gpuGrid?.totalMs ?? null,
+    },
   ] as const;
 
   return (
@@ -449,8 +700,21 @@ function TimingChart({ rows }: { rows: ComputeRow[] }) {
         ))}
       </div>
       <div className="overflow-x-auto">
-        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="CPU and WebGPU naive all-pairs timing by object count" className="min-w-[44rem] w-full">
-          <rect x={left} y={top} width={plotWidth} height={plotHeight} rx="12" fill="#09090b" stroke="#27272a" />
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          role="img"
+          aria-label="CPU and WebGPU naive and uniform-grid timing by object count"
+          className="min-w-[44rem] w-full"
+        >
+          <rect
+            x={left}
+            y={top}
+            width={plotWidth}
+            height={plotHeight}
+            rx="12"
+            fill="#09090b"
+            stroke="#27272a"
+          />
           {[0, 0.25, 0.5, 0.75, 1].map((fraction) => {
             const value = Math.pow(10, minLog + (maxLog - minLog) * fraction);
             const lineY = top + plotHeight * (1 - fraction);
@@ -464,11 +728,25 @@ function TimingChart({ rows }: { rows: ComputeRow[] }) {
             );
           })}
           {rows.map((row, index) => (
-            <text key={row.objects} x={x(index)} y={height - 20} textAnchor="middle" fill="#71717a" fontSize="12">
+            <text
+              key={row.objects}
+              x={x(index)}
+              y={height - 20}
+              textAnchor="middle"
+              fill="#71717a"
+              fontSize="12"
+            >
               {formatCount(row.objects)}
             </text>
           ))}
-          <text x={16} y={height / 2} transform={`rotate(-90 16 ${height / 2})`} textAnchor="middle" fill="#71717a" fontSize="12">
+          <text
+            x={16}
+            y={height / 2}
+            transform={`rotate(-90 16 ${height / 2})`}
+            textAnchor="middle"
+            fill="#71717a"
+            fontSize="12"
+          >
             milliseconds · log scale
           </text>
           {series.map((entry) => {
@@ -499,6 +777,15 @@ function TimingChart({ rows }: { rows: ComputeRow[] }) {
   );
 }
 
+function ParityLabel({ value }: { value: boolean | null }) {
+  if (value == null) return <span className="text-zinc-600">—</span>;
+  return value ? (
+    <span className="font-semibold text-emerald-300">exact</span>
+  ) : (
+    <span className="font-semibold text-red-300">mismatch</span>
+  );
+}
+
 function MetricCard({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900/35 p-4">
@@ -516,6 +803,27 @@ function ComputeNote({ title, copy }: { title: string; copy: string }) {
       <p className="mt-2 text-sm leading-6 text-zinc-500">{copy}</p>
     </div>
   );
+}
+
+function formatSetup(
+  naive: { setupMs: number } | null,
+  grid: { setupMs: number } | null,
+  unavailable: string | null,
+) {
+  if (unavailable) return "unavailable";
+  if (!naive) return "initializing";
+  if (!grid) return `${formatMs(naive.setupMs)} + grid pending`;
+  return formatMs(naive.setupMs + grid.setupMs);
+}
+
+function formatRatio(ratio: number) {
+  if (!Number.isFinite(ratio)) return "—";
+  if (ratio >= 1) return `${ratio.toFixed(ratio >= 10 ? 1 : 2)}× faster`;
+  return `${(1 / ratio).toFixed(2)}× slower`;
+}
+
+function formatPercent(value: number) {
+  return `${(Math.max(0, Math.min(1, value)) * 100).toFixed(1)}%`;
 }
 
 function formatMs(value: number) {
