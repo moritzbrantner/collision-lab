@@ -141,7 +141,7 @@ impl ScenePreset {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 pub struct PresetConfig {
     pub scene: Config,
     pub motion: MotionConfig,
