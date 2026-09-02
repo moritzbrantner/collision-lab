@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { DynamicAabbExplanation } from "../../components/dynamic-aabb-explanation";
 import { ExplanationMode } from "../../components/explanation-mode";
+import { OctreeExplanation } from "../../components/octree-explanation";
 import { StaticBvhExplanation } from "../../components/static-bvh-explanation";
 
 export default function ExplainPage() {
@@ -18,6 +19,9 @@ export default function ExplainPage() {
           <Link href="/analysis/" className="rounded-full border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100">
             Analysis
           </Link>
+          <Link href="/compute/" className="rounded-full border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-zinc-500 hover:text-zinc-100">
+            Compute
+          </Link>
         </div>
       </div>
 
@@ -27,7 +31,7 @@ export default function ExplainPage() {
           Understand the idea before scaling it up.
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-zinc-400">
-          Start with a handful of labeled objects and walk through each decision. Flat algorithms share one scene; hierarchy lessons use purpose-built deterministic scenes so pruning, slack, and structural updates are visually unmistakable.
+          Start with a handful of labeled objects and walk through each decision. Flat algorithms share one scene; hierarchy and partition lessons use purpose-built deterministic views so pruning, slack, and spatial subdivision are visually unmistakable.
         </p>
       </div>
 
@@ -57,11 +61,22 @@ export default function ExplainPage() {
         <DynamicAabbExplanation />
       </div>
 
+      <div className="mt-14">
+        <div className="mb-6 max-w-3xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Spatial partition lesson · 3D → 2D slices</p>
+          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">Octree: four quadrants in each of two Z halves.</h2>
+          <p className="mt-3 leading-7 text-zinc-500">
+            Instead of pretending the octree is a quadtree, this lesson keeps the actual eight Rust child boxes and projects them into two flat slices. Step through the lower/high X, Y, and Z choices that define every octant.
+          </p>
+        </div>
+        <OctreeExplanation />
+      </div>
+
       <section className="mt-12 grid gap-4 md:grid-cols-3">
         {[
-          ["Purpose-built scenes", "Flat algorithms share one comparison scene; hierarchy lessons use tiny deterministic scenes chosen to expose each structural idea clearly."],
-          ["Rust-backed", "Overlap results, memberships, active sets, BVH traversal, fat bounds, and reinsertion decisions come from the same Rust/WASM kernels used elsewhere."],
-          ["One idea at a time", "Explanation mode deliberately trades scale for clarity; the Experiment and Analysis modes handle realistic workloads and quantitative tradeoffs."],
+          ["Purpose-built scenes", "Flat algorithms share one comparison scene; hierarchy and partition lessons use deterministic views chosen to expose each structural idea clearly."],
+          ["Rust-backed", "Overlap results, memberships, active sets, BVH traversal, fat bounds, reinsertion decisions, and octree child membership come from Rust/WASM."],
+          ["One idea at a time", "Explanation mode deliberately trades scale for clarity; Experiment, Analysis, and Compute handle realistic workloads and quantitative tradeoffs."],
         ].map(([title, copy]) => (
           <div key={title} className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
             <h2 className="font-semibold text-zinc-200">{title}</h2>
