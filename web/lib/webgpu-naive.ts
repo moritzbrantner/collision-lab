@@ -60,7 +60,7 @@ export type WebGpuNaiveMeasurement = {
 export type WebGpuNaiveRunner = {
   setupMs: number;
   timestampSupported: boolean;
-  run(aabbs: Float32Array, objectCount: number): Promise<WebGpuNaiveMeasurement>;
+  run(aabbs: Float32Array<ArrayBuffer>, objectCount: number): Promise<WebGpuNaiveMeasurement>;
   destroy(): void;
 };
 
@@ -101,6 +101,9 @@ export async function createWebGpuNaiveRunner(): Promise<WebGpuNaiveRunner> {
     setupMs,
     timestampSupported,
     async run(aabbs, objectCount) {
+      if (!Number.isInteger(objectCount) || objectCount < 0 || objectCount > 65_536) {
+        throw new Error("The current u32 triangular pair index supports 0 to 65,536 objects.");
+      }
       if (aabbs.length !== objectCount * 8) {
         throw new Error(`Expected ${objectCount * 8} packed AABB floats, received ${aabbs.length}.`);
       }
@@ -142,8 +145,9 @@ export async function createWebGpuNaiveRunner(): Promise<WebGpuNaiveRunner> {
         size: 16,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
+      const params = new Uint32Array([objectCount, wordCount, 0, 0]);
       device.queue.writeBuffer(inputBuffer, 0, aabbs);
-      device.queue.writeBuffer(paramsBuffer, 0, new Uint32Array([objectCount, wordCount, 0, 0]));
+      device.queue.writeBuffer(paramsBuffer, 0, params);
       const bindGroup = device.createBindGroup({
         label: "collision-lab naive all-pairs",
         layout: pipeline.getBindGroupLayout(0),
@@ -187,6 +191,9 @@ export async function createWebGpuNaiveRunner(): Promise<WebGpuNaiveRunner> {
         pass.setPipeline(pipeline);
         pass.setBindGroup(0, bindGroup);
         const workgroups = Math.ceil(objectCount / WORKGROUP_SIZE);
+        if (workgroups > device.limits.maxComputeWorkgroupsPerDimension) {
+          throw new Error("The object count exceeds this device's compute-workgroup dimension limit.");
+        }
         pass.dispatchWorkgroups(workgroups, workgroups, 1);
         pass.end();
 
