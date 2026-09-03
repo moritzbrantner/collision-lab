@@ -8,19 +8,27 @@ A deterministic Rust playground for learning, comparing, and visualizing collisi
 
 The lab is intentionally separate from [`rust-kernels`](https://github.com/moritzbrantner/rust-kernels): reusable algorithms live there; scenarios, instrumentation, semantic interaction policy, comparisons, and visualization live here.
 
-## Two modes
+## Four modes
 
 ### Explanation mode
 
-`/explain/` is a simplified 2D teaching surface. It uses a tiny deterministic scene with labeled rectangles and walks through algorithm decisions one step at a time. The first slice covers naive all-pairs, uniform grid, and sweep-and-prune.
+`/explain/` is the teaching surface. It uses small deterministic scenes, 2D diagrams, and projected 3D geometry to walk through real Rust algorithm decisions one step at a time. It now covers broad-phase pruning from naive all-pairs through grids, sweep-and-prune, BVHs, dynamic AABB trees, and octrees, followed by narrow-phase analytical primitives and 2D/3D OBB SAT.
 
-The web layer does not reimplement optimized collision algorithms. It obtains overlap results and execution traces from the same Rust/WASM implementation used elsewhere in the lab, then projects those results into SVG.
+The web layer does not reimplement collision decisions. It obtains overlap results, execution traces, axes, projections, and work counters from Rust/WASM, then projects that state into SVG.
 
 ### Experiment mode
 
 `/demo/` is the full Rust/WASM/Three.js laboratory. It supports deterministic moving scenes, static and dynamic bodies, solid and sensor interactions, a live world-level interaction matrix, broad-phase metrics, and paused execution traces.
 
-Explanation mode teaches **why** an algorithm works. Experiment mode explores **when** it works well.
+### Analysis mode
+
+`/analysis/` compares deterministic algorithmic work across scene sizes and distributions using Rust/WASM counters rather than browser rendering time.
+
+### Compute mode
+
+`/compute/` separates algorithmic pruning from execution hardware by comparing equivalent Rust/WASM and WebGPU workloads with exact pair-set parity.
+
+Explanation teaches **why** an algorithm works. Experiment explores **when** it works well. Analysis measures **how much work** it performs. Compute asks **where that work should execute**.
 
 ## Current broad phases
 
@@ -29,8 +37,18 @@ Explanation mode teaches **why** an algorithm works. Experiment mode explores **
 - **sweep-and-prune** — sorts intervals and tests only the active set
 - **static BVH** — hierarchically rejects groups of bounds
 - **dynamic AABB tree** — retains a balanced hierarchy across moving frames using fat AABBs
+- **octree** — recursively subdivides crowded 3D regions into eight children
 
 All optimized broad phases are differential-tested against the naive reference and must return the exact same deterministic set of overlapping AABB pairs.
+
+## Current narrow phases
+
+- **sphere ↔ sphere** — exact squared-center-distance test
+- **AABB ↔ AABB** — exact interval overlap on all three world axes
+- **2D OBB SAT** — four local face axes with explicit 1D projection evidence
+- **3D OBB SAT** — six face axes plus nine edge-cross axes, including explicit handling of degenerate parallel cross products
+
+Reusable geometry mechanisms live in `rust-kernels::geometry-kernels`; Collision Lab owns the teaching scenes and visual evidence.
 
 ## Website development
 
@@ -72,7 +90,7 @@ Use `--help` for all parameters.
 ```text
 rust-kernels
      │
-     │ reusable spatial algorithms + optional traces
+     │ reusable spatial + geometry algorithms + optional traces
      ▼
 collision-lab Rust
      │

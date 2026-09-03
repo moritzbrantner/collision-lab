@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AnalyticalPrimitivesExplanation } from "../../components/analytical-primitives-explanation";
 import { DynamicAabbExplanation } from "../../components/dynamic-aabb-explanation";
 import { ExplanationMode } from "../../components/explanation-mode";
+import { Obb3SatExplanation } from "../../components/obb3-sat-explanation";
 import { OctreeExplanation } from "../../components/octree-explanation";
 import { SatExplanation } from "../../components/sat-explanation";
 import { StaticBvhExplanation } from "../../components/static-bvh-explanation";
@@ -28,7 +29,7 @@ export default function ExplainPage() {
       </div>
 
       <div className="mt-10 max-w-4xl">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Explanation mode · 2D</p>
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Explanation mode · 2D + projected 3D</p>
         <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-50 sm:text-6xl">
           Understand the idea before scaling it up.
         </h1>
@@ -79,7 +80,7 @@ export default function ExplainPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">New chapter · Narrow phase</p>
           <h2 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-100">From “maybe these are near” to “do the shapes actually intersect?”</h2>
           <p className="mt-4 text-lg leading-8 text-zinc-500">
-            The broad phase is intentionally conservative: it should cheaply discard impossible pairs without missing real collisions. Narrow phase receives the survivors and performs shape-specific geometry. We start with primitives whose answer can be written as a small analytical formula, then generalize the same separating-axis idea to rotated boxes.
+            The broad phase is intentionally conservative: it should cheaply discard impossible pairs without missing real collisions. Narrow phase receives the survivors and performs shape-specific geometry. We start with primitives whose answer can be written as a small analytical formula, then generalize the same separating-axis proof from 2D to full 3D oriented boxes.
           </p>
         </div>
         <AnalyticalPrimitivesExplanation />
@@ -88,7 +89,7 @@ export default function ExplainPage() {
       <div className="mt-14">
         <div className="mb-6 max-w-4xl">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Narrow phase · Generalized separating axes</p>
-          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">SAT: rotate the boxes, then rotate the axes you test.</h2>
+          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">SAT in 2D: rotate the boxes, then rotate the axes you test.</h2>
           <p className="mt-3 leading-7 text-zinc-500">
             AABBs could use the world axes because their faces were aligned with them. Oriented rectangles bring their own local X/Y directions. Step through all four candidate axes below and watch the Rust projection test search for a single gap.
           </p>
@@ -96,11 +97,22 @@ export default function ExplainPage() {
         <SatExplanation />
       </div>
 
+      <div className="mt-14">
+        <div className="mb-6 max-w-4xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Narrow phase · Full 3D SAT</p>
+          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">The same proof scales to 15 candidate axes in 3D.</h2>
+          <p className="mt-3 leading-7 text-zinc-500">
+            Six face normals catch face separation. Nine pairwise edge cross products catch edge-edge separation that no face axis can prove. The view below projects the actual Rust OBB state into SVG while every collision decision remains in `geometry-kernels`.
+          </p>
+        </div>
+        <Obb3SatExplanation />
+      </div>
+
       <section className="mt-12 grid gap-4 md:grid-cols-3">
         {[
           ["Broad phase filters", "Grid, sweep, BVH, dynamic trees, and octrees reduce the pair set. Their job is not necessarily to understand the exact render/physics shape."],
-          ["Narrow phase proves", "Sphere/AABB formulas and OBB SAT answer the exact primitive collision question for one surviving pair using Rust geometry kernels."],
-          ["Generalization path", "2D SAT makes the projection proof visible. The next steps are 3D OBB SAT, convex support mappings, GJK, and EPA."],
+          ["Narrow phase proves", "Sphere/AABB formulas and 2D/3D OBB SAT answer the exact primitive collision question for one surviving pair using Rust geometry kernels."],
+          ["Generalization path", "SAT establishes projection-based convex reasoning. Capsules and support mappings are the next bridge toward GJK and EPA."],
         ].map(([title, copy]) => (
           <div key={title} className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
             <h2 className="font-semibold text-zinc-200">{title}</h2>
