@@ -33,6 +33,14 @@ const SVG_WIDTH = 680;
 const SVG_HEIGHT = 300;
 const PAD_X = 42;
 const PAD_Y = 34;
+const VIEW_SPAN = VIEW_MAX - VIEW_MIN;
+const WORLD_SCALE = Math.min(
+  (SVG_WIDTH - PAD_X * 2) / VIEW_SPAN,
+  (SVG_HEIGHT - PAD_Y * 2) / VIEW_SPAN,
+);
+const WORLD_SIZE = VIEW_SPAN * WORLD_SCALE;
+const WORLD_ORIGIN_X = (SVG_WIDTH - WORLD_SIZE) / 2;
+const WORLD_ORIGIN_Y = (SVG_HEIGHT - WORLD_SIZE) / 2;
 
 export function AnalyticalPrimitivesExplanation() {
   const [ready, setReady] = useState(false);
@@ -391,13 +399,13 @@ function Metric({ label, value, emphasize = false }: { label: string; value: str
 }
 
 function sx(value: number) {
-  return PAD_X + ((value - VIEW_MIN) / (VIEW_MAX - VIEW_MIN)) * (SVG_WIDTH - PAD_X * 2);
+  return WORLD_ORIGIN_X + (value - VIEW_MIN) * WORLD_SCALE;
 }
 function sy(value: number) {
-  return PAD_Y + ((VIEW_MAX - value) / (VIEW_MAX - VIEW_MIN)) * (SVG_HEIGHT - PAD_Y * 2);
+  return WORLD_ORIGIN_Y + (VIEW_MAX - value) * WORLD_SCALE;
 }
 function radiusPx(radius: number) {
-  return (radius / (VIEW_MAX - VIEW_MIN)) * (SVG_WIDTH - PAD_X * 2);
+  return radius * WORLD_SCALE;
 }
 function formatSigned(value: number) {
   const normalized = Math.abs(value) < 0.0005 ? 0 : value;
