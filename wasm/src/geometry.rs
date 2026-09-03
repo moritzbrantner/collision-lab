@@ -160,8 +160,8 @@ pub fn obb3_sat_json(
     );
     let relation = obb3_sat(left, right);
     let axis_labels = [
-        "A.x", "A.y", "A.z", "B.x", "B.y", "B.z", "A.x×B.x", "A.x×B.y", "A.x×B.z",
-        "A.y×B.x", "A.y×B.y", "A.y×B.z", "A.z×B.x", "A.z×B.y", "A.z×B.z",
+        "A.x", "A.y", "A.z", "B.x", "B.y", "B.z", "A.x×B.x", "A.x×B.y", "A.x×B.z", "A.y×B.x",
+        "A.y×B.y", "A.y×B.z", "A.z×B.x", "A.z×B.y", "A.z×B.z",
     ];
     let axes: Vec<_> = relation
         .axes
