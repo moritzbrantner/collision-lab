@@ -129,6 +129,17 @@ impl HumanoidAnimator {
                 [origin.x, origin.y, origin.z]
             })
             .collect::<Vec<_>>();
+        let clip_metadata = [ClipKind::Idle, ClipKind::Walk, ClipKind::Attack, ClipKind::Death]
+            .into_iter()
+            .map(|kind| {
+                let clip = self.clips.get(kind);
+                json!({
+                    "name": kind.as_str(),
+                    "duration": clip.duration(),
+                    "loops": kind.loops(),
+                })
+            })
+            .collect::<Vec<_>>();
 
         let value = json!({
             "source": {
@@ -157,17 +168,7 @@ impl HumanoidAnimator {
                 })
             }).collect::<Vec<_>>(),
             "restWorldOrigins": origins,
-            "clips": [ClipKind::Idle, ClipKind::Walk, ClipKind::Attack, ClipKind::Death]
-                .into_iter()
-                .map(|kind| {
-                    let clip = self.clips.get(kind);
-                    json!({
-                        "name": kind.as_str(),
-                        "duration": clip.duration(),
-                        "loops": kind.loops(),
-                    })
-                })
-                .collect::<Vec<_>>(),
+            "clips": clip_metadata,
         });
         serde_json::to_string(&value)
     }
