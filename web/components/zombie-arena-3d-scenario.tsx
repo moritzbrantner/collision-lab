@@ -215,19 +215,15 @@ export function ZombieArena3dScenario() {
       }
     };
 
-    if (document.fullscreenElement === arena) {
-      requestPointerLock();
-      return;
-    }
+    if (document.pointerLockElement !== arena) requestPointerLock();
+    if (document.fullscreenElement === arena) return;
 
-    void arena
-      .requestFullscreen()
-      .then(requestPointerLock)
-      .catch((reason: unknown) => {
-        setPaused(true);
-        setMenuOpen(true);
-        setInteractionError(`Fullscreen failed: ${String(reason)}`);
-      });
+    void arena.requestFullscreen().catch((reason: unknown) => {
+      if (document.pointerLockElement === arena) document.exitPointerLock();
+      setPaused(true);
+      setMenuOpen(true);
+      setInteractionError(`Fullscreen failed: ${String(reason)}`);
+    });
   };
 
   const leaveToExplanations = () => {
