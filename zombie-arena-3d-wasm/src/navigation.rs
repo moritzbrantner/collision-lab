@@ -101,9 +101,7 @@ pub(crate) fn astar(
             }
 
             let next_g = current.g.saturating_add(1);
-            let should_update = best_g
-                .get(&neighbor)
-                .is_none_or(|known| next_g < *known);
+            let should_update = best_g.get(&neighbor).is_none_or(|known| next_g < *known);
             if !should_update {
                 continue;
             }
@@ -173,14 +171,8 @@ mod tests {
             .map(|z| Cell { x: 0, z })
             .collect::<BTreeSet<_>>();
 
-        let search = astar(
-            Cell { x: -3, z: 0 },
-            Cell { x: 3, z: 0 },
-            &blocked,
-            -4,
-            4,
-        )
-        .expect("path should exist");
+        let search = astar(Cell { x: -3, z: 0 }, Cell { x: 3, z: 0 }, &blocked, -4, 4)
+            .expect("path should exist");
 
         assert_eq!(search.path.first(), Some(&Cell { x: -3, z: 0 }));
         assert_eq!(search.path.last(), Some(&Cell { x: 3, z: 0 }));
@@ -191,22 +183,10 @@ mod tests {
     #[test]
     fn deterministic_tie_break_is_stable() {
         let blocked = BTreeSet::new();
-        let first = astar(
-            Cell { x: 0, z: 0 },
-            Cell { x: 2, z: 2 },
-            &blocked,
-            -4,
-            4,
-        )
-        .expect("path should exist");
-        let second = astar(
-            Cell { x: 0, z: 0 },
-            Cell { x: 2, z: 2 },
-            &blocked,
-            -4,
-            4,
-        )
-        .expect("path should exist");
+        let first = astar(Cell { x: 0, z: 0 }, Cell { x: 2, z: 2 }, &blocked, -4, 4)
+            .expect("path should exist");
+        let second = astar(Cell { x: 0, z: 0 }, Cell { x: 2, z: 2 }, &blocked, -4, 4)
+            .expect("path should exist");
 
         assert_eq!(first.path, second.path);
     }
@@ -222,15 +202,6 @@ mod tests {
         .into_iter()
         .collect::<BTreeSet<_>>();
 
-        assert!(
-            astar(
-                Cell { x: 0, z: 0 },
-                Cell { x: 2, z: 2 },
-                &blocked,
-                -3,
-                3
-            )
-            .is_none()
-        );
+        assert!(astar(Cell { x: 0, z: 0 }, Cell { x: 2, z: 2 }, &blocked, -3, 3).is_none());
     }
 }
