@@ -21,6 +21,10 @@ const GRAVITY: f32 = -18.0;
 const ZOMBIE_HALF: [f32; 3] = [0.4, 0.82, 0.4];
 const ZOMBIE_SPEED: f32 = 2.25;
 const ZOMBIE_MAX_HEALTH: f32 = 3.0;
+const ZOMBIE_SEPARATION_RADIUS: f32 = 1.45;
+const ZOMBIE_SEPARATION_WEIGHT: f32 = 0.58;
+const ZOMBIE_BARRICADE_DPS: f32 = 32.0;
+const BARRICADE_ATTACK_REACH: f32 = 0.18;
 const BULLET_RADIUS: f32 = 0.08;
 const BULLET_SPEED: f32 = 36.0;
 const BULLET_LIFETIME: f32 = 1.2;
@@ -61,6 +65,9 @@ struct Wall {
     position: [f32; 3],
     half: [f32; 3],
     low: bool,
+    health: f32,
+    max_health: f32,
+    destructible: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -92,6 +99,8 @@ struct FrameMetrics {
     path_replans: u64,
     path_expanded: u64,
     path_found: u64,
+    destroyed_barricades: u64,
+    steering_adjustments: u64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -121,6 +130,7 @@ pub struct ZombieArena3dWorld {
     jumps: u32,
     path_replans_total: u64,
     path_expanded_total: u64,
+    destroyed_barricades_total: u64,
     game_over: bool,
 }
 
@@ -191,6 +201,7 @@ impl ZombieArena3dWorld {
             jumps: 0,
             path_replans_total: 0,
             path_expanded_total: 0,
+            destroyed_barricades_total: 0,
             game_over: false,
         };
         for _ in 0..INITIAL_ZOMBIES {
@@ -214,12 +225,33 @@ impl ZombieArena3dWorld {
         self.metrics.path_replans = 0;
         self.metrics.path_expanded = 0;
         self.metrics.path_found = 0;
+        self.metrics.destroyed_barricades = 0;
+        self.metrics.steering_adjustments = 0;
         self.sweeps.clear();
 
         if let Some(direction) = normalize3(aim) {
             self.player.aim = direction;
         }
 
+        self.move_player(movement, jump);
+        if shoot && self.fire_cooldown <= 0.0 {
+            self.fire();
+            self.fire_cooldown = FIRE_INTERVAL;
+        }
+
+        self.step_zombies();
+        self.step_bullets();
+        self.resolve_actor_overlaps();
+        self.attack_barricades();
+
+        if self.frame % SPAWN_INTERVAL_FRAMES == 0 && self.zombies.len() < MAX_ZOMBIES {
+            self.spawn_zombie();
+        }
+
+        self.refresh_collision_metrics();
+    }
+
+    fn move_player(&mut self, movement: [f32; 2], jump: bool) {
         let movement = normalize2_or_zero(movement);
         let horizontal_delta = [
             movement[0] * PLAYER_SPEED * FIXED_DT,
@@ -241,11 +273,10 @@ impl ZombieArena3dWorld {
         }
 
         self.player.velocity[1] += GRAVITY * FIXED_DT;
-        let vertical_delta = self.player.velocity[1] * FIXED_DT;
         let (next_y, hit_vertical) = move_vertical(
             self.player.position,
             PLAYER_HALF,
-            vertical_delta,
+            self.player.velocity[1] * FIXED_DT,
             &self.walls,
         );
         self.player.position[1] = next_y;
@@ -253,21 +284,6 @@ impl ZombieArena3dWorld {
             self.player.velocity[1] = 0.0;
         }
         self.player.grounded = is_supported(self.player.position, PLAYER_HALF, &self.walls);
-
-        if shoot && self.fire_cooldown <= 0.0 {
-            self.fire();
-            self.fire_cooldown = FIRE_INTERVAL;
-        }
-
-        self.step_zombies();
-        self.step_bullets();
-        self.resolve_actor_overlaps();
-
-        if self.frame % SPAWN_INTERVAL_FRAMES == 0 && self.zombies.len() < MAX_ZOMBIES {
-            self.spawn_zombie();
-        }
-
-        self.refresh_collision_metrics();
     }
 
     fn fire(&mut self) {
@@ -291,11 +307,21 @@ impl ZombieArena3dWorld {
     fn step_zombies(&mut self) {
         let blocked = blocked_navigation_cells(&self.walls);
         let goal = world_to_cell(self.player.position);
-        let walls = &self.walls;
+        let walls = self.walls.clone();
+        let positions = self
+            .zombies
+            .iter()
+            .map(|zombie| zombie.position)
+            .collect::<Vec<_>>();
         let frame = self.frame;
 
-        for zombie in &mut self.zombies {
-            let start = world_to_cell(zombie.position);
+        for index in 0..self.zombies.len() {
+            let start = world_to_cell(positions[index]);
+            let avoidance = local_separation(index, &positions);
+            let fallback = nearest_destructible_wall_target(positions[index], &walls)
+                .unwrap_or(self.player.position);
+
+            let zombie = &mut self.zombies[index];
             let needs_replan = frame >= zombie.next_replan_frame
                 || zombie.path_goal != Some(goal)
                 || zombie.path_cursor >= zombie.path.len();
@@ -317,7 +343,7 @@ impl ZombieArena3dWorld {
                         .path_expanded_total
                         .saturating_add(u64::from(search.expanded));
                     zombie.path = search.path;
-                    zombie.path_cursor = if zombie.path.len() > 1 { 1 } else { 0 };
+                    zombie.path_cursor = usize::from(zombie.path.len() > 1);
                 } else {
                     zombie.path.clear();
                     zombie.path_cursor = 0;
@@ -326,37 +352,33 @@ impl ZombieArena3dWorld {
                 zombie.next_replan_frame = frame.saturating_add(PATH_REPLAN_FRAMES);
             }
 
+            advance_path_cursor(zombie);
             let target = zombie
                 .path
                 .get(zombie.path_cursor)
                 .copied()
                 .map(cell_to_world)
-                .unwrap_or(self.player.position);
-            let toward = [
+                .unwrap_or(fallback);
+            let route = normalize2_or_zero([
                 target[0] - zombie.position[0],
                 target[2] - zombie.position[2],
-            ];
-            if length_squared2(toward) < 0.10 * 0.10 && zombie.path_cursor + 1 < zombie.path.len() {
-                zombie.path_cursor += 1;
+            ]);
+            let direction = normalize2_or_zero([
+                route[0] + avoidance[0] * ZOMBIE_SEPARATION_WEIGHT,
+                route[1] + avoidance[1] * ZOMBIE_SEPARATION_WEIGHT,
+            ]);
+            if length_squared2(avoidance) > 1.0e-6 {
+                self.metrics.steering_adjustments =
+                    self.metrics.steering_adjustments.saturating_add(1);
             }
 
-            let next_target = zombie
-                .path
-                .get(zombie.path_cursor)
-                .copied()
-                .map(cell_to_world)
-                .unwrap_or(self.player.position);
-            let direction = normalize2_or_zero([
-                next_target[0] - zombie.position[0],
-                next_target[2] - zombie.position[2],
-            ]);
             let delta = [
                 direction[0] * ZOMBIE_SPEED * FIXED_DT,
                 0.0,
                 direction[1] * ZOMBIE_SPEED * FIXED_DT,
             ];
-            zombie.position = move_with_sliding_3d(zombie.position, ZOMBIE_HALF, delta, walls);
-            zombie.position[1] = grounded_center_y(zombie.position, ZOMBIE_HALF, walls);
+            zombie.position = move_with_sliding_3d(zombie.position, ZOMBIE_HALF, delta, &walls);
+            zombie.position[1] = grounded_center_y(zombie.position, ZOMBIE_HALF, &walls);
         }
     }
 
@@ -473,6 +495,43 @@ impl ZombieArena3dWorld {
             {
                 self.separate_zombies(left, right);
             }
+        }
+    }
+
+    fn attack_barricades(&mut self) {
+        if !self.walls.iter().any(|wall| wall.destructible) {
+            return;
+        }
+
+        let mut damage = vec![0.0_f32; self.walls.len()];
+        for zombie in &self.zombies {
+            let reach = expand_xz(
+                actor_aabb(zombie.position, ZOMBIE_HALF),
+                BARRICADE_ATTACK_REACH,
+            );
+            for (index, wall) in self.walls.iter().enumerate() {
+                if wall.destructible && aabb_overlaps(reach, wall_aabb(*wall)) {
+                    damage[index] += ZOMBIE_BARRICADE_DPS * FIXED_DT;
+                }
+            }
+        }
+
+        for (wall, damage) in self.walls.iter_mut().zip(damage) {
+            if wall.destructible && damage > 0.0 {
+                wall.health = (wall.health - damage).max(0.0);
+            }
+        }
+
+        let before = self.walls.len();
+        self.walls
+            .retain(|wall| !wall.destructible || wall.health > 0.0);
+        let destroyed = before.saturating_sub(self.walls.len());
+        if destroyed > 0 {
+            let destroyed = u64::try_from(destroyed).unwrap_or(u64::MAX);
+            self.metrics.destroyed_barricades = destroyed;
+            self.destroyed_barricades_total =
+                self.destroyed_barricades_total.saturating_add(destroyed);
+            self.invalidate_navigation();
         }
     }
 
@@ -654,6 +713,9 @@ impl ZombieArena3dWorld {
                 "position": wall.position,
                 "half": wall.half,
                 "low": wall.low,
+                "health": wall.health,
+                "maxHealth": wall.max_health,
+                "destructible": wall.destructible,
             })).collect::<Vec<_>>(),
             "bullets": self.bullets.iter().map(|bullet| json!({
                 "id": bullet.id,
@@ -677,6 +739,7 @@ impl ZombieArena3dWorld {
             "stats": {
                 "zombies": self.zombies.len(),
                 "walls": self.walls.len(),
+                "builtBarricades": self.walls.iter().filter(|wall| wall.destructible).count(),
                 "bullets": self.bullets.len(),
                 "kills": self.kills,
                 "shots": self.shots,
@@ -692,11 +755,68 @@ impl ZombieArena3dWorld {
                 "pathExpanded": self.metrics.path_expanded,
                 "pathReplansTotal": self.path_replans_total,
                 "pathExpandedTotal": self.path_expanded_total,
+                "destroyedBarricades": self.metrics.destroyed_barricades,
+                "destroyedBarricadesTotal": self.destroyed_barricades_total,
+                "steeringAdjustments": self.metrics.steering_adjustments,
             },
             "gameOver": self.game_over,
         });
         serde_json::to_string(&value)
     }
+}
+
+fn advance_path_cursor(zombie: &mut Zombie) {
+    let Some(target) = zombie.path.get(zombie.path_cursor).copied() else {
+        return;
+    };
+    let target = cell_to_world(target);
+    let toward = [
+        target[0] - zombie.position[0],
+        target[2] - zombie.position[2],
+    ];
+    if length_squared2(toward) < 0.10 * 0.10 && zombie.path_cursor + 1 < zombie.path.len() {
+        zombie.path_cursor += 1;
+    }
+}
+
+fn local_separation(index: usize, positions: &[[f32; 3]]) -> [f32; 2] {
+    let Some(origin) = positions.get(index).copied() else {
+        return [0.0, 0.0];
+    };
+    let radius_sq = ZOMBIE_SEPARATION_RADIUS * ZOMBIE_SEPARATION_RADIUS;
+    let mut force = [0.0_f32, 0.0_f32];
+
+    for (neighbor_index, neighbor) in positions.iter().copied().enumerate() {
+        if neighbor_index == index {
+            continue;
+        }
+        let delta = [origin[0] - neighbor[0], origin[2] - neighbor[2]];
+        let distance_sq = length_squared2(delta);
+        if distance_sq <= 1.0e-8 || distance_sq >= radius_sq {
+            continue;
+        }
+        let distance = distance_sq.sqrt();
+        let strength = (ZOMBIE_SEPARATION_RADIUS - distance) / ZOMBIE_SEPARATION_RADIUS;
+        force[0] += delta[0] / distance * strength;
+        force[1] += delta[1] / distance * strength;
+    }
+
+    normalize2_or_zero(force)
+}
+
+fn nearest_destructible_wall_target(position: [f32; 3], walls: &[Wall]) -> Option<[f32; 3]> {
+    let mut best: Option<(f32, u32, [f32; 3])> = None;
+    for wall in walls.iter().copied().filter(|wall| wall.destructible) {
+        let distance = distance_squared_xz(position, wall.position);
+        let replace = best.is_none_or(|(best_distance, best_id, _)| {
+            distance < best_distance - 1.0e-6
+                || ((distance - best_distance).abs() <= 1.0e-6 && wall.id < best_id)
+        });
+        if replace {
+            best = Some((distance, wall.id, wall.position));
+        }
+    }
+    best.map(|(_, _, position)| position)
 }
 
 fn arena_walls() -> Vec<Wall> {
@@ -721,6 +841,9 @@ const fn wall(id: u32, position: [f32; 3], half: [f32; 3], low: bool) -> Wall {
         position,
         half,
         low,
+        health: 0.0,
+        max_health: 0.0,
+        destructible: false,
     }
 }
 
@@ -739,6 +862,13 @@ fn aabb_overlaps(left: Aabb, right: Aabb) -> bool {
         && left.max[1] > right.min[1]
         && left.min[2] < right.max[2]
         && left.max[2] > right.min[2]
+}
+
+fn expand_xz(aabb: Aabb, amount: f32) -> Aabb {
+    Aabb {
+        min: [aabb.min[0] - amount, aabb.min[1], aabb.min[2] - amount],
+        max: [aabb.max[0] + amount, aabb.max[1], aabb.max[2] + amount],
+    }
 }
 
 fn collides_with_walls(position: [f32; 3], half: [f32; 3], walls: &[Wall]) -> bool {
@@ -1040,5 +1170,48 @@ mod tests {
         let low = wall(999, [0.0, 0.45, 0.0], [1.0, 0.45, 1.0], true);
         let position = [0.0, 0.9 + PLAYER_HALF[1], 0.0];
         assert!(is_supported(position, PLAYER_HALF, &[low]));
+    }
+
+    #[test]
+    fn local_separation_pushes_neighbors_apart_symmetrically() {
+        let positions = [
+            [0.0, ZOMBIE_HALF[1], 0.0],
+            [0.8, ZOMBIE_HALF[1], 0.0],
+        ];
+        let left = local_separation(0, &positions);
+        let right = local_separation(1, &positions);
+        assert!(left[0] < 0.0);
+        assert!(right[0] > 0.0);
+        assert!((left[0] + right[0]).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn zombie_damage_destroys_runtime_barricade_and_invalidates_paths() {
+        let mut world = ZombieArena3dWorld::new_inner(Algorithm::UniformGrid, 91);
+        world.zombies.clear();
+        world
+            .build_json(8.0, 8.0)
+            .expect("free cell should accept barricade");
+        world.zombies.push(Zombie {
+            id: 9_001,
+            position: [7.05, ZOMBIE_HALF[1], 8.0],
+            health: ZOMBIE_MAX_HEALTH,
+            path: vec![Cell { x: 7, z: 8 }, Cell { x: 8, z: 8 }],
+            path_cursor: 1,
+            path_goal: Some(Cell { x: 8, z: 8 }),
+            next_replan_frame: 999,
+        });
+
+        for _ in 0..240 {
+            world.attack_barricades();
+            if !world.walls.iter().any(|wall| wall.destructible) {
+                break;
+            }
+        }
+
+        assert!(!world.walls.iter().any(|wall| wall.destructible));
+        assert_eq!(world.destroyed_barricades_total, 1);
+        assert!(world.zombies[0].path.is_empty());
+        assert_eq!(world.zombies[0].next_replan_frame, 0);
     }
 }
