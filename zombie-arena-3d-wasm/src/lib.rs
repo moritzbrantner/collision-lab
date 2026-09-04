@@ -1174,10 +1174,7 @@ mod tests {
 
     #[test]
     fn local_separation_pushes_neighbors_apart_symmetrically() {
-        let positions = [
-            [0.0, ZOMBIE_HALF[1], 0.0],
-            [0.8, ZOMBIE_HALF[1], 0.0],
-        ];
+        let positions = [[0.0, ZOMBIE_HALF[1], 0.0], [0.8, ZOMBIE_HALF[1], 0.0]];
         let left = local_separation(0, &positions);
         let right = local_separation(1, &positions);
         assert!(left[0] < 0.0);
