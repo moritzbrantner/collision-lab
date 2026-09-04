@@ -364,7 +364,11 @@ impl ZombieArena3dWorld {
         let frame = self.frame;
 
         let flow_targets = if self.navigation_mode == NavigationMode::FlowField {
-            if self.flow_field.as_ref().is_none_or(|field| field.goal != goal) {
+            if self
+                .flow_field
+                .as_ref()
+                .is_none_or(|field| field.goal != goal)
+            {
                 let field = FlowField::build(goal, &blocked, NAV_MIN, NAV_MAX);
                 self.metrics.flow_field_builds = 1;
                 self.metrics.flow_field_expanded = u64::from(field.expanded);
@@ -408,7 +412,8 @@ impl ZombieArena3dWorld {
                         self.metrics.path_replans = self.metrics.path_replans.saturating_add(1);
                         self.path_replans_total = self.path_replans_total.saturating_add(1);
 
-                        if let Some(search) = astar(start, goal, &search_blocked, NAV_MIN, NAV_MAX) {
+                        if let Some(search) = astar(start, goal, &search_blocked, NAV_MIN, NAV_MAX)
+                        {
                             self.metrics.path_found = self.metrics.path_found.saturating_add(1);
                             self.metrics.path_expanded = self
                                 .metrics
