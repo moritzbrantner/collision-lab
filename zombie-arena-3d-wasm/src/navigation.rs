@@ -171,8 +171,6 @@ fn line_of_sight(from: Cell, to: Cell, blocked: &BTreeSet<Cell>) -> bool {
             return false;
         }
 
-        // Conservatively reject diagonal corner cuts. This keeps string-pulled
-        // routes inside the same clearance assumptions as the grid A* search.
         if current.x != previous.x && current.z != previous.z {
             let side_x = Cell {
                 x: current.x,
@@ -311,6 +309,7 @@ impl ZombieArena3dWorld {
     }
 
     pub(crate) fn invalidate_navigation(&mut self) {
+        self.flow_field = None;
         for zombie in &mut self.zombies {
             zombie.path.clear();
             zombie.path_cursor = 0;
