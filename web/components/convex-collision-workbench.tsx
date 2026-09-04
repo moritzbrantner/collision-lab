@@ -66,6 +66,8 @@ export function ConvexCollisionWorkbench() {
     const exactB = convexHull(SOURCE_B);
     const proxyA = approximateConvex(exactA, samples);
     const proxyB = approximateConvex(exactB, samples);
+    const exactWorldA = transformPolygon(exactA, { x: -1.25, y: 0 }, 0);
+    const exactWorldB = transformPolygon(exactB, { x: offsetX, y: offsetY }, degreesToRadians(rotationDegrees));
     const worldA = transformPolygon(proxyA, { x: -1.25, y: 0 }, 0);
     const worldB = transformPolygon(proxyB, { x: offsetX, y: offsetY }, degreesToRadians(rotationDegrees));
     const gjk = gjkIntersect(worldA, worldB);
@@ -79,6 +81,8 @@ export function ConvexCollisionWorkbench() {
       exactB,
       proxyA,
       proxyB,
+      exactWorldA,
+      exactWorldB,
       worldA,
       worldB,
       gjk,
@@ -108,7 +112,7 @@ export function ConvexCollisionWorkbench() {
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">Interactive convex narrow phase</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-100 sm:text-3xl">Move the shapes. Watch the proof change.</h2>
             <p className="mt-3 text-sm leading-6 text-zinc-500">
-              The visible polygons are low-vertex convex proxies. GJK never needs their full Minkowski difference; it asks only for extreme support points in carefully chosen directions. When the origin is enclosed, EPA expands that simplex to estimate how far the shapes penetrate.
+              The solid polygons are low-vertex convex proxies; dashed outlines show the fuller convex hull. GJK never needs their full Minkowski difference; it asks only for extreme support points in carefully chosen directions. When the origin is enclosed, EPA expands that simplex to estimate how far the shapes penetrate.
             </p>
           </div>
           <DecisionBadge collides={model.gjk.collides} depth={model.epa?.depth ?? null} />
@@ -127,6 +131,8 @@ export function ConvexCollisionWorkbench() {
               <rect width={WIDTH} height={HEIGHT} rx="22" fill="#09090b" />
               <Grid />
 
+              <polygon points={toSvgPoints(model.exactWorldA)} fill="none" stroke="#155e75" strokeWidth="2" strokeDasharray="6 7" strokeOpacity="0.65" />
+              <polygon points={toSvgPoints(model.exactWorldB)} fill="none" stroke="#6d28d9" strokeWidth="2" strokeDasharray="6 7" strokeOpacity="0.65" />
               <polygon points={toSvgPoints(model.worldA)} fill="#083344" fillOpacity="0.9" stroke="#67e8f9" strokeWidth="3" />
               <polygon
                 points={toSvgPoints(model.worldB)}
@@ -188,7 +194,7 @@ export function ConvexCollisionWorkbench() {
               <div className="mt-1 text-xs text-zinc-600">support queries shown</div>
             </div>
             <span className="rounded-full border border-zinc-800 px-3 py-1 font-mono text-xs text-zinc-500">
-              simplex {activeStep?.simplex.length ?? 0}D
+              {activeStep?.simplex.length ?? 0} simplex pts
             </span>
           </div>
 
@@ -389,15 +395,16 @@ function gjkIntersect(left: Polygon, right: Polygon): GjkResult {
 
   const simplex: Polygon = [];
   const steps: GjkStep[] = [];
-  let point = supportMinkowski(left, right, direction);
+  const initialQueryDirection = direction;
+  let point = supportMinkowski(left, right, initialQueryDirection);
   simplex.unshift(point);
   direction = negate(point);
   steps.push({
     iteration: 0,
-    direction: normalizeSafe(direction),
+    direction: normalizeSafe(initialQueryDirection),
     support: point,
     simplex: [...simplex],
-    decision: "Start from one extreme point of A − B, then search back toward the origin.",
+    decision: "Start with one support query, then search from that extreme point back toward the origin.",
   });
 
   for (let iteration = 1; iteration < 24; iteration += 1) {
@@ -405,12 +412,13 @@ function gjkIntersect(left: Polygon, right: Polygon): GjkResult {
       return { collides: true, simplex: [...simplex], steps };
     }
 
-    point = supportMinkowski(left, right, direction);
-    const advance = dot(point, direction);
+    const queryDirection = direction;
+    point = supportMinkowski(left, right, queryDirection);
+    const advance = dot(point, queryDirection);
     if (advance < 0) {
       steps.push({
         iteration,
-        direction: normalizeSafe(direction),
+        direction: normalizeSafe(queryDirection),
         support: point,
         simplex: [...simplex],
         decision: "The next support point cannot pass the origin in this direction, so the Minkowski difference cannot contain the origin.",
@@ -424,7 +432,7 @@ function gjkIntersect(left: Polygon, right: Polygon): GjkResult {
     simplex.splice(0, simplex.length, ...handled.simplex);
     steps.push({
       iteration,
-      direction: normalizeSafe(direction),
+      direction: normalizeSafe(queryDirection),
       support: point,
       simplex: [...simplex],
       decision: handled.containsOrigin
