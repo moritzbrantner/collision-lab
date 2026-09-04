@@ -1,8 +1,10 @@
+mod flow_field;
 mod navigation;
 
 use std::collections::BTreeSet;
 
 use collision_lab::{Algorithm, Config, Scenario, run_algorithm};
+use flow_field::FlowField;
 use navigation::{Cell, astar};
 use serde_json::json;
 use spatial_kernels::{Aabb, Body, Pair};
@@ -38,6 +40,31 @@ const NAV_CELL: f32 = 1.0;
 const NAV_MIN: i32 = -13;
 const NAV_MAX: i32 = 13;
 const PATH_REPLAN_FRAMES: u64 = 18;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NavigationMode {
+    Astar,
+    FlowField,
+}
+
+impl NavigationMode {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "astar" => Ok(Self::Astar),
+            "flow-field" => Ok(Self::FlowField),
+            other => Err(format!(
+                "unknown navigation mode `{other}`; expected astar or flow-field"
+            )),
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Astar => "astar",
+            Self::FlowField => "flow-field",
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 struct Player {
@@ -101,6 +128,9 @@ struct FrameMetrics {
     path_found: u64,
     destroyed_barricades: u64,
     steering_adjustments: u64,
+    flow_field_builds: u64,
+    flow_field_expanded: u64,
+    flow_field_followers: u64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -112,6 +142,8 @@ enum BulletHit {
 #[wasm_bindgen]
 pub struct ZombieArena3dWorld {
     algorithm: Algorithm,
+    navigation_mode: NavigationMode,
+    flow_field: Option<FlowField>,
     seed: u64,
     rng: SplitMix64,
     player: Player,
@@ -131,6 +163,7 @@ pub struct ZombieArena3dWorld {
     path_replans_total: u64,
     path_expanded_total: u64,
     destroyed_barricades_total: u64,
+    flow_field_builds_total: u64,
     game_over: bool,
 }
 
@@ -150,6 +183,15 @@ impl ZombieArena3dWorld {
     pub fn set_algorithm(&mut self, algorithm: &str) -> Result<String, JsValue> {
         self.algorithm = Algorithm::parse(algorithm).map_err(|error| JsValue::from_str(&error))?;
         self.refresh_collision_metrics();
+        self.snapshot_json()
+    }
+
+    pub fn set_navigation_mode(&mut self, mode: &str) -> Result<String, JsValue> {
+        let next = NavigationMode::parse(mode).map_err(|error| JsValue::from_str(&error))?;
+        if self.navigation_mode != next {
+            self.navigation_mode = next;
+            self.invalidate_navigation();
+        }
         self.snapshot_json()
     }
 
@@ -177,6 +219,8 @@ impl ZombieArena3dWorld {
     fn new_inner(algorithm: Algorithm, seed: u64) -> Self {
         let mut world = Self {
             algorithm,
+            navigation_mode: NavigationMode::Astar,
+            flow_field: None,
             seed,
             rng: SplitMix64::new(seed ^ 0x5A33_445F_4152_454E),
             player: Player {
@@ -202,6 +246,7 @@ impl ZombieArena3dWorld {
             path_replans_total: 0,
             path_expanded_total: 0,
             destroyed_barricades_total: 0,
+            flow_field_builds_total: 0,
             game_over: false,
         };
         for _ in 0..INITIAL_ZOMBIES {
@@ -227,6 +272,9 @@ impl ZombieArena3dWorld {
         self.metrics.path_found = 0;
         self.metrics.destroyed_barricades = 0;
         self.metrics.steering_adjustments = 0;
+        self.metrics.flow_field_builds = 0;
+        self.metrics.flow_field_expanded = 0;
+        self.metrics.flow_field_followers = 0;
         self.sweeps.clear();
 
         if let Some(direction) = normalize3(aim) {
@@ -315,50 +363,88 @@ impl ZombieArena3dWorld {
             .collect::<Vec<_>>();
         let frame = self.frame;
 
+        let flow_targets = if self.navigation_mode == NavigationMode::FlowField {
+            if self.flow_field.as_ref().is_none_or(|field| field.goal != goal) {
+                let field = FlowField::build(goal, &blocked, NAV_MIN, NAV_MAX);
+                self.metrics.flow_field_builds = 1;
+                self.metrics.flow_field_expanded = u64::from(field.expanded);
+                self.flow_field_builds_total = self.flow_field_builds_total.saturating_add(1);
+                self.flow_field = Some(field);
+            }
+            let field = self.flow_field.as_ref().expect("flow field just built");
+            positions
+                .iter()
+                .copied()
+                .map(|position| {
+                    let current = world_to_cell(position);
+                    if current == goal {
+                        Some(self.player.position)
+                    } else {
+                        field.next_cell(current).map(cell_to_world)
+                    }
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+
         for index in 0..self.zombies.len() {
             let start = world_to_cell(positions[index]);
             let avoidance = local_separation(index, &positions);
             let fallback = nearest_destructible_wall_target(positions[index], &walls)
                 .unwrap_or(self.player.position);
 
-            let zombie = &mut self.zombies[index];
-            let needs_replan = frame >= zombie.next_replan_frame
-                || zombie.path_goal != Some(goal)
-                || zombie.path_cursor >= zombie.path.len();
+            let target = match self.navigation_mode {
+                NavigationMode::Astar => {
+                    let zombie = &mut self.zombies[index];
+                    let needs_replan = frame >= zombie.next_replan_frame
+                        || zombie.path_goal != Some(goal)
+                        || zombie.path_cursor >= zombie.path.len();
 
-            if needs_replan {
-                let mut search_blocked = blocked.clone();
-                search_blocked.remove(&start);
-                search_blocked.remove(&goal);
-                self.metrics.path_replans = self.metrics.path_replans.saturating_add(1);
-                self.path_replans_total = self.path_replans_total.saturating_add(1);
+                    if needs_replan {
+                        let mut search_blocked = blocked.clone();
+                        search_blocked.remove(&start);
+                        search_blocked.remove(&goal);
+                        self.metrics.path_replans = self.metrics.path_replans.saturating_add(1);
+                        self.path_replans_total = self.path_replans_total.saturating_add(1);
 
-                if let Some(search) = astar(start, goal, &search_blocked, NAV_MIN, NAV_MAX) {
-                    self.metrics.path_found = self.metrics.path_found.saturating_add(1);
-                    self.metrics.path_expanded = self
-                        .metrics
-                        .path_expanded
-                        .saturating_add(u64::from(search.expanded));
-                    self.path_expanded_total = self
-                        .path_expanded_total
-                        .saturating_add(u64::from(search.expanded));
-                    zombie.path = search.path;
-                    zombie.path_cursor = usize::from(zombie.path.len() > 1);
-                } else {
-                    zombie.path.clear();
-                    zombie.path_cursor = 0;
+                        if let Some(search) = astar(start, goal, &search_blocked, NAV_MIN, NAV_MAX) {
+                            self.metrics.path_found = self.metrics.path_found.saturating_add(1);
+                            self.metrics.path_expanded = self
+                                .metrics
+                                .path_expanded
+                                .saturating_add(u64::from(search.expanded));
+                            self.path_expanded_total = self
+                                .path_expanded_total
+                                .saturating_add(u64::from(search.expanded));
+                            zombie.path = search.path;
+                            zombie.path_cursor = usize::from(zombie.path.len() > 1);
+                        } else {
+                            zombie.path.clear();
+                            zombie.path_cursor = 0;
+                        }
+                        zombie.path_goal = Some(goal);
+                        zombie.next_replan_frame = frame.saturating_add(PATH_REPLAN_FRAMES);
+                    }
+
+                    advance_path_cursor(zombie);
+                    zombie
+                        .path
+                        .get(zombie.path_cursor)
+                        .copied()
+                        .map(cell_to_world)
+                        .unwrap_or(fallback)
                 }
-                zombie.path_goal = Some(goal);
-                zombie.next_replan_frame = frame.saturating_add(PATH_REPLAN_FRAMES);
-            }
+                NavigationMode::FlowField => {
+                    if flow_targets[index].is_some() {
+                        self.metrics.flow_field_followers =
+                            self.metrics.flow_field_followers.saturating_add(1);
+                    }
+                    flow_targets[index].unwrap_or(fallback)
+                }
+            };
 
-            advance_path_cursor(zombie);
-            let target = zombie
-                .path
-                .get(zombie.path_cursor)
-                .copied()
-                .map(cell_to_world)
-                .unwrap_or(fallback);
+            let zombie = &mut self.zombies[index];
             let route = normalize2_or_zero([
                 target[0] - zombie.position[0],
                 target[2] - zombie.position[2],
@@ -688,6 +774,7 @@ impl ZombieArena3dWorld {
         let value = json!({
             "frame": self.frame,
             "algorithm": self.algorithm.as_str(),
+            "navigationMode": self.navigation_mode.as_str(),
             "worldHalf": WORLD_HALF,
             "fixedDt": FIXED_DT,
             "navCell": NAV_CELL,
@@ -734,6 +821,7 @@ impl ZombieArena3dWorld {
                 "navigation": {
                     "blocked": blocked.iter().map(|cell| [cell.x, cell.z]).collect::<Vec<_>>(),
                     "paths": paths,
+                    "flowFieldReachable": self.flow_field.as_ref().map_or(0, FlowField::reachable_cells),
                 },
             },
             "stats": {
@@ -758,6 +846,10 @@ impl ZombieArena3dWorld {
                 "destroyedBarricades": self.metrics.destroyed_barricades,
                 "destroyedBarricadesTotal": self.destroyed_barricades_total,
                 "steeringAdjustments": self.metrics.steering_adjustments,
+                "flowFieldBuilds": self.metrics.flow_field_builds,
+                "flowFieldExpanded": self.metrics.flow_field_expanded,
+                "flowFieldFollowers": self.metrics.flow_field_followers,
+                "flowFieldBuildsTotal": self.flow_field_builds_total,
             },
             "gameOver": self.game_over,
         });
@@ -1210,5 +1302,23 @@ mod tests {
         assert_eq!(world.destroyed_barricades_total, 1);
         assert!(world.zombies[0].path.is_empty());
         assert_eq!(world.zombies[0].next_replan_frame, 0);
+    }
+
+    #[test]
+    fn flow_field_cache_rebuilds_only_when_invalidated() {
+        let mut world = ZombieArena3dWorld::new_inner(Algorithm::UniformGrid, 77);
+        world.navigation_mode = NavigationMode::FlowField;
+        world.invalidate_navigation();
+
+        world.step_zombies();
+        assert_eq!(world.flow_field_builds_total, 1);
+        assert!(world.flow_field.is_some());
+        world.step_zombies();
+        assert_eq!(world.flow_field_builds_total, 1);
+
+        world.invalidate_navigation();
+        assert!(world.flow_field.is_none());
+        world.step_zombies();
+        assert_eq!(world.flow_field_builds_total, 2);
     }
 }
