@@ -28,6 +28,9 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
               <Link href="/convex/" className="transition hover:text-zinc-50">
                 Convex
               </Link>
+              <Link href="/scenarios/" className="transition hover:text-zinc-50">
+                Scenarios
+              </Link>
               <Link href="/demo/" className="transition hover:text-zinc-50">
                 Experiment
               </Link>
