@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "wasm": "wasm-pack build ../wasm --target web --out-dir ../web/lib/wasm-pkg --out-name collision_wasm --release && wasm-pack build ../zombie-arena-wasm --target web --out-dir ../web/lib/zombie-arena-wasm-pkg --out-name zombie_arena_wasm --release",
+    "wasm": "wasm-pack build ../wasm --target web --out-dir ../web/lib/wasm-pkg --out-name collision_wasm --release && wasm-pack build ../zombie-arena-wasm --target web --out-dir ../web/lib/zombie-arena-wasm-pkg --out-name zombie_arena_wasm --release && wasm-pack build ../zombie-arena-3d-wasm --target web --out-dir ../web/lib/zombie-arena-3d-wasm-pkg --out-name zombie_arena_3d_wasm --release",
     "build": "next build",
     "typecheck": "tsc --noEmit"
   },
