@@ -12,6 +12,7 @@ use super::{
 
 const BUILT_WALL_ID_BASE: u32 = 10_000;
 const BARRICADE_HALF: [f32; 3] = [0.46, 0.72, 0.46];
+const BARRICADE_HEALTH: f32 = 100.0;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct Cell {
@@ -34,9 +35,8 @@ impl OpenNode {
 
 impl Ord for OpenNode {
     fn cmp(&self, other: &Self) -> Ordering {
-        // BinaryHeap is a max-heap. Reverse every comparison so the smallest
-        // f/h/cell tuple is popped first. The final cell tie-break makes A*
-        // fully deterministic across native and WASM builds.
+        // BinaryHeap is a max-heap. Reverse comparisons so the smallest
+        // f/h/cell tuple wins. Cell ordering is the final deterministic tie-break.
         other
             .f()
             .cmp(&self.f())
@@ -167,14 +167,12 @@ fn line_of_sight(from: Cell, to: Cell, blocked: &BTreeSet<Cell>) -> bool {
             x: (from.x as f32 + dx as f32 * t).round() as i32,
             z: (from.z as f32 + dz as f32 * t).round() as i32,
         };
-
         if current != to && blocked.contains(&current) {
             return false;
         }
 
-        // When the sampled line advances diagonally, require both orthogonal
-        // side cells to be clear. This prevents smoothing from cutting through
-        // a blocked grid corner even though the actor center line is clear.
+        // Conservatively reject diagonal corner cuts. This keeps string-pulled
+        // routes inside the same clearance assumptions as the grid A* search.
         if current.x != previous.x && current.z != previous.z {
             let side_x = Cell {
                 x: current.x,
@@ -249,12 +247,14 @@ impl ZombieArena3dWorld {
             return Err(JsValue::from_str("barricades must stay inside the arena"));
         }
 
-        let position = cell_center(cell);
         let candidate = super::Wall {
             id: self.next_barricade_id(),
-            position,
+            position: cell_center(cell),
             half: BARRICADE_HALF,
             low: false,
+            health: BARRICADE_HEALTH,
+            max_health: BARRICADE_HEALTH,
+            destructible: true,
         };
         let bounds = wall_aabb(candidate);
 
@@ -310,7 +310,7 @@ impl ZombieArena3dWorld {
             .saturating_add(1)
     }
 
-    fn invalidate_navigation(&mut self) {
+    pub(crate) fn invalidate_navigation(&mut self) {
         for zombie in &mut self.zombies {
             zombie.path.clear();
             zombie.path_cursor = 0;
@@ -367,7 +367,6 @@ mod tests {
             .expect("path should exist");
         let second = astar(Cell { x: 0, z: 0 }, Cell { x: 2, z: 2 }, &blocked, -4, 4)
             .expect("path should exist");
-
         assert_eq!(first.path, second.path);
     }
 
@@ -381,7 +380,6 @@ mod tests {
             5,
         )
         .expect("path should exist");
-
         assert_eq!(
             search.path,
             vec![Cell { x: -4, z: -3 }, Cell { x: 4, z: 3 }]
@@ -410,12 +408,11 @@ mod tests {
         ]
         .into_iter()
         .collect::<BTreeSet<_>>();
-
         assert!(astar(Cell { x: 0, z: 0 }, Cell { x: 2, z: 2 }, &blocked, -3, 3).is_none());
     }
 
     #[test]
-    fn runtime_barricade_updates_navigation_and_can_be_removed() {
+    fn runtime_barricade_is_destructible_and_updates_navigation() {
         let mut world = ZombieArena3dWorld::new_inner(Algorithm::UniformGrid, 41);
         world.zombies.clear();
         let target = Cell { x: 8, z: 8 };
@@ -424,8 +421,14 @@ mod tests {
         world
             .build_json(target.x as f32, target.z as f32)
             .expect("free cell should accept a barricade");
+        let built = world
+            .walls
+            .iter()
+            .find(|wall| wall.id >= BUILT_WALL_ID_BASE)
+            .expect("built wall should exist");
+        assert!(built.destructible);
+        assert_eq!(built.health, BARRICADE_HEALTH);
         assert!(blocked_navigation_cells(&world.walls).contains(&target));
-        assert!(world.walls.iter().any(|wall| wall.id >= BUILT_WALL_ID_BASE));
 
         world
             .remove_barricade_json(target.x as f32, target.z as f32)
