@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const ARENA_NAME = "Third-person 3D Zombie Arena";
+const DIAGNOSTICS_NAME = "Performance and collision diagnostics";
 
 async function frameNumber(page: Page) {
   const text = await page.getByText(/fixed dt .* frame \d+/).textContent();
@@ -31,11 +32,24 @@ async function startArena(page: Page) {
   await readyMenu.getByRole("button", { name: "Play fullscreen" }).click();
   await expectCaptured(page);
   await expect.poll(() => frameNumber(page)).toBeGreaterThan(5);
+
+  const diagnostics = page.locator(`[aria-label="${DIAGNOSTICS_NAME}"]`);
+  await expect(diagnostics).toBeVisible();
+  await expect(diagnostics.getByText("render FPS")).toBeVisible();
+  await expect(diagnostics.getByText("AABB tests")).toBeVisible();
+  await expect(diagnostics.getByText("A* replans / frame")).toBeVisible();
   return arena;
 }
 
 test("Zombie Arena captures mouse-look and Escape opens a frozen pause menu", async ({ page }) => {
   const arena = await startArena(page);
+  const diagnostics = page.locator(`[aria-label="${DIAGNOSTICS_NAME}"]`);
+
+  await page.keyboard.press("F3");
+  await expect(diagnostics).toBeHidden();
+  await page.keyboard.press("F3");
+  await expect(diagnostics).toBeVisible();
+
   const canvas = arena.locator("canvas");
   await expect(canvas).toBeVisible();
   const beforeLook = await canvas.screenshot();
