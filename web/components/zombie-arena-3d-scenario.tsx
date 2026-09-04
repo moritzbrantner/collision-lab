@@ -148,6 +148,7 @@ const BLOCKED_MATERIAL = new THREE.MeshBasicMaterial({
 });
 
 export function ZombieArena3dScenario() {
+  const arenaRef = useRef<HTMLDivElement | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
   const worldRef = useRef<ZombieArena3dWorld | null>(null);
   const renderRef = useRef<RenderResources | null>(null);
@@ -160,19 +161,94 @@ export function ZombieArena3dScenario() {
   const aimRef = useRef<Vec3>([0, -0.04, -1]);
   const [snapshot, setSnapshot] = useState<Arena3dSnapshot | null>(null);
   const [algorithm, setAlgorithm] = useState(DEFAULT_ALGORITHM);
-  const [paused, setPaused] = useState(false);
+  const [paused, setPaused] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(true);
   const [buildMode, setBuildMode] = useState(false);
   const [buildNotice, setBuildNotice] = useState<string | null>(null);
   const [showPaths, setShowPaths] = useState(true);
   const [showNavGrid, setShowNavGrid] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [interactionError, setInteractionError] = useState<string | null>(null);
 
   const applySnapshot = (raw: string) => {
     const next = parseSnapshot(raw);
     snapshotRef.current = next;
     setSnapshot(next);
     return next;
+  };
+
+  const clearTransientInput = () => {
+    keysRef.current.clear();
+    shootRef.current = false;
+    jumpRequestedRef.current = false;
+  };
+
+  const pauseForMenu = () => {
+    clearTransientInput();
+    setPaused(true);
+    setMenuOpen(true);
+    if (document.pointerLockElement === arenaRef.current) document.exitPointerLock();
+  };
+
+  const enterGameplay = () => {
+    const arena = arenaRef.current;
+    if (!arena) return;
+
+    clearTransientInput();
+    setInteractionError(null);
+    setPaused(true);
+    setMenuOpen(false);
+    arena.focus();
+
+    const requestPointerLock = () => {
+      try {
+        void Promise.resolve(arena.requestPointerLock()).catch((reason: unknown) => {
+          setPaused(true);
+          setMenuOpen(true);
+          setInteractionError(`Pointer lock failed: ${String(reason)}`);
+        });
+      } catch (reason) {
+        setPaused(true);
+        setMenuOpen(true);
+        setInteractionError(`Pointer lock failed: ${String(reason)}`);
+      }
+    };
+
+    if (document.fullscreenElement === arena) {
+      requestPointerLock();
+      return;
+    }
+
+    void arena
+      .requestFullscreen()
+      .then(requestPointerLock)
+      .catch((reason: unknown) => {
+        setPaused(true);
+        setMenuOpen(true);
+        setInteractionError(`Fullscreen failed: ${String(reason)}`);
+      });
+  };
+
+  const leaveToExplanations = () => {
+    clearTransientInput();
+    setPaused(true);
+    setMenuOpen(true);
+    setInteractionError(null);
+
+    if (document.pointerLockElement === arenaRef.current) document.exitPointerLock();
+
+    const showExplanations = () => {
+      document
+        .getElementById("zombie-arena-3d-explanations")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+
+    if (document.fullscreenElement === arenaRef.current) {
+      void document.exitFullscreen().then(showExplanations).catch(showExplanations);
+    } else {
+      showExplanations();
+    }
   };
 
   useEffect(() => {
@@ -199,6 +275,7 @@ export function ZombieArena3dScenario() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isEditableTarget(event.target)) return;
+      if (document.pointerLockElement !== arenaRef.current) return;
       const key = event.key.toLowerCase();
       if (["w", "a", "s", "d"].includes(key)) keysRef.current.add(key);
       if (event.code === "Space" && !event.repeat) {
@@ -215,9 +292,7 @@ export function ZombieArena3dScenario() {
       keysRef.current.delete(event.key.toLowerCase());
     };
     const onBlur = () => {
-      keysRef.current.clear();
-      shootRef.current = false;
-      jumpRequestedRef.current = false;
+      clearTransientInput();
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
@@ -226,6 +301,53 @@ export function ZombieArena3dScenario() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onPointerLockChange = () => {
+      const arena = arenaRef.current;
+      if (!arena) return;
+
+      if (document.pointerLockElement === arena) {
+        setInteractionError(null);
+        setMenuOpen(false);
+        setPaused(false);
+        arena.focus();
+        return;
+      }
+
+      clearTransientInput();
+      if (document.fullscreenElement === arena) {
+        setPaused(true);
+        setMenuOpen(true);
+      }
+    };
+
+    const onPointerLockError = () => {
+      clearTransientInput();
+      setPaused(true);
+      setMenuOpen(true);
+      setInteractionError("The browser could not lock the pointer. Click Resume to try again.");
+    };
+
+    const onFullscreenChange = () => {
+      const arena = arenaRef.current;
+      if (!arena) return;
+      if (document.fullscreenElement !== arena && document.pointerLockElement !== arena) {
+        clearTransientInput();
+        setPaused(true);
+        setMenuOpen(true);
+      }
+    };
+
+    document.addEventListener("pointerlockchange", onPointerLockChange);
+    document.addEventListener("pointerlockerror", onPointerLockError);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => {
+      document.removeEventListener("pointerlockchange", onPointerLockChange);
+      document.removeEventListener("pointerlockerror", onPointerLockError);
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
     };
   }, []);
 
@@ -410,14 +532,15 @@ export function ZombieArena3dScenario() {
     worldRef.current = world;
     previous?.free();
     applySnapshot(world.snapshot_json());
-    setPaused(false);
+    setPaused(true);
+    setMenuOpen(true);
     setBuildMode(false);
     setBuildNotice(null);
-    shootRef.current = false;
-    jumpRequestedRef.current = false;
-    keysRef.current.clear();
+    setInteractionError(null);
+    clearTransientInput();
     cameraYawRef.current = 0;
     cameraPitchRef.current = -0.12;
+    aimRef.current = [0, -0.04, -1];
   };
 
   const changeAlgorithm = (nextAlgorithm: string) => {
@@ -441,7 +564,9 @@ export function ZombieArena3dScenario() {
         ? world.remove_barricade_json(x, z)
         : world.build_json(x, z);
       applySnapshot(raw);
-      setBuildNotice(remove ? "Barricade removed; routes invalidated." : "Barricade built; routes invalidated.");
+      setBuildNotice(
+        remove ? "Barricade removed; routes invalidated." : "Barricade built; routes invalidated.",
+      );
     } catch (reason) {
       setBuildNotice(String(reason));
     }
@@ -465,7 +590,7 @@ export function ZombieArena3dScenario() {
 
   return (
     <section className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950">
-      <div className="border-b border-zinc-800 p-5 sm:p-6">
+      <div id="zombie-arena-3d-explanations" className="scroll-mt-6 border-b border-zinc-800 p-5 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div className="max-w-3xl">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">
@@ -475,16 +600,16 @@ export function ZombieArena3dScenario() {
               Third-person shooting with dynamic A* navigation.
             </h2>
             <p className="mt-3 text-sm leading-6 text-zinc-500">
-              WASD moves, Space jumps, the pointer rotates the camera, and click fires. Toggle Build mode with B to place grid-snapped barricades four metres ahead; Shift-click removes one. Every mutation invalidates zombie routes, and Rust recomputes deterministic smoothed A* paths around the new obstacle field.
+              Play opens the arena fullscreen and locks the mouse to the game. WASD moves, Space jumps, mouse look rotates the camera, and click fires. Press Escape to release the mouse and open the pause menu. Toggle Build mode with B to place grid-snapped barricades four metres ahead; Shift-click removes one. Every mutation invalidates zombie routes, and Rust recomputes deterministic smoothed A* paths around the new obstacle field.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => setPaused((value) => !value)}
+              onClick={paused ? enterGameplay : pauseForMenu}
               className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-200 transition hover:border-zinc-500"
             >
-              {paused ? "Resume" : "Pause"}
+              {paused ? "Play fullscreen" : "Pause"}
             </button>
             <button
               type="button"
@@ -500,12 +625,13 @@ export function ZombieArena3dScenario() {
       <div className="grid xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 p-4 sm:p-6">
           <div
+            ref={arenaRef}
             tabIndex={0}
             role="application"
             aria-label="Third-person 3D Zombie Arena"
             onPointerMove={(event) => {
-              if (document.activeElement !== event.currentTarget) return;
-              cameraYawRef.current -= event.movementX * 0.0032;
+              if (document.pointerLockElement !== event.currentTarget) return;
+              cameraYawRef.current += event.movementX * 0.0032;
               cameraPitchRef.current = THREE.MathUtils.clamp(
                 cameraPitchRef.current - event.movementY * 0.0026,
                 -0.48,
@@ -514,8 +640,11 @@ export function ZombieArena3dScenario() {
             }}
             onPointerDown={(event) => {
               if (event.button !== 0) return;
-              event.currentTarget.focus();
-              event.currentTarget.setPointerCapture(event.pointerId);
+              if (document.pointerLockElement !== event.currentTarget) {
+                event.currentTarget.focus();
+                enterGameplay();
+                return;
+              }
               if (buildMode) {
                 shootRef.current = false;
                 mutateBarricade(event.shiftKey);
@@ -523,11 +652,8 @@ export function ZombieArena3dScenario() {
                 shootRef.current = true;
               }
             }}
-            onPointerUp={(event) => {
+            onPointerUp={() => {
               shootRef.current = false;
-              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                event.currentTarget.releasePointerCapture(event.pointerId);
-              }
             }}
             onPointerCancel={() => {
               shootRef.current = false;
@@ -551,20 +677,70 @@ export function ZombieArena3dScenario() {
                 }`}
               />
             </div>
-            {buildMode && (
+            {buildMode && !menuOpen && (
               <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-lg border border-amber-800/70 bg-zinc-950/90 px-3 py-2 text-xs font-semibold text-amber-200 backdrop-blur">
                 BUILD · click place · Shift-click remove
               </div>
             )}
-            {snapshot.gameOver && (
+            {snapshot.gameOver && !menuOpen && (
               <div className="pointer-events-none absolute inset-x-6 top-6 z-10 rounded-2xl border border-red-900/70 bg-red-950/85 p-4 text-center text-sm font-semibold text-red-200 backdrop-blur">
-                Run over — restart to replay the same deterministic seed.
+                Run over — press Escape, then restart from the pause menu.
+              </div>
+            )}
+            {menuOpen && (
+              <div
+                className="absolute inset-0 z-30 grid place-items-center bg-zinc-950/85 p-6 backdrop-blur-md"
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                <div className="w-full max-w-md rounded-3xl border border-zinc-700 bg-zinc-950/95 p-6 shadow-2xl">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                    Zombie Arena 3D
+                  </p>
+                  <h3 className="mt-2 text-2xl font-semibold text-zinc-100">
+                    {snapshot.frame === 0 ? "Ready to play" : "Paused"}
+                  </h3>
+                  <p className="mt-3 text-sm leading-6 text-zinc-400">
+                    The simulation is paused while the pointer is released. Resume returns to fullscreen mouse-look; Escape always gives control of the mouse back.
+                  </p>
+                  {interactionError && (
+                    <p className="mt-3 rounded-xl border border-amber-800/70 bg-amber-950/30 px-3 py-2 text-xs leading-5 text-amber-200" aria-live="polite">
+                      {interactionError}
+                    </p>
+                  )}
+                  <div className="mt-6 grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={enterGameplay}
+                      className="rounded-xl bg-zinc-100 px-4 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-white"
+                    >
+                      {snapshot.frame === 0 ? "Play fullscreen" : "Resume"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        restart();
+                        enterGameplay();
+                      }}
+                      className="rounded-xl border border-zinc-700 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:border-zinc-500"
+                    >
+                      Restart
+                    </button>
+                    <button
+                      type="button"
+                      onClick={leaveToExplanations}
+                      className="rounded-xl border border-zinc-800 px-4 py-3 text-sm font-semibold text-zinc-400 transition hover:border-zinc-600 hover:text-zinc-200 sm:col-span-2"
+                    >
+                      Back to explanations
+                    </button>
+                  </div>
+                  <p className="mt-4 text-xs text-zinc-600">WASD · Space jump · B build · mouse look · click action · Escape menu</p>
+                </div>
               </div>
             )}
           </div>
 
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-zinc-500">
-            <span>WASD · Space jump · B build · pointer camera · click action</span>
+            <span>WASD · Space jump · B build · mouse look · click action · Escape menu</span>
             <span className="font-mono">
               fixed dt {(snapshot.fixedDt * 1000).toFixed(2)} ms · frame {snapshot.frame}
             </span>
@@ -615,7 +791,10 @@ export function ZombieArena3dScenario() {
           </p>
 
           <div className="mt-5 grid grid-cols-2 gap-2">
-            <Metric label="health" value={`${Math.ceil(snapshot.player.health)} / ${snapshot.player.maxHealth}`} />
+            <Metric
+              label="health"
+              value={`${Math.ceil(snapshot.player.health)} / ${snapshot.player.maxHealth}`}
+            />
             <Metric label="zombies" value={snapshot.stats.zombies} />
             <Metric label="kills" value={snapshot.stats.kills} />
             <Metric label="barricades" value={builtBarricades} />
@@ -678,7 +857,10 @@ function buildTarget(player: PlayerSnapshot): [number, number] {
   const horizontalLength = Math.hypot(player.aim[0], player.aim[2]);
   const x = horizontalLength > 0.0001 ? player.aim[0] / horizontalLength : 0;
   const z = horizontalLength > 0.0001 ? player.aim[2] / horizontalLength : -1;
-  return [player.position[0] + x * BUILD_DISTANCE, player.position[2] + z * BUILD_DISTANCE];
+  return [
+    player.position[0] + x * BUILD_DISTANCE,
+    player.position[2] + z * BUILD_DISTANCE,
+  ];
 }
 
 function syncSnapshot(resources: RenderResources, snapshot: Arena3dSnapshot) {
@@ -822,7 +1004,10 @@ function syncNavigation(resources: RenderResources, snapshot: Arena3dSnapshot) {
       ...path.waypoints.map(([x, , z]) => new THREE.Vector3(x, 0.08, z)),
     ];
     if (points.length >= 2) {
-      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), PATH_MATERIAL);
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(points),
+        PATH_MATERIAL,
+      );
       resources.pathGroup.add(line);
       resources.pathLines.set(path.zombieId, line);
     } else {
@@ -875,10 +1060,16 @@ function updateCameraAndAim(
 
 function makePlayer() {
   const group = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.38, 0.9, 6, 10), PLAYER_BODY_MATERIAL);
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.38, 0.9, 6, 10),
+    PLAYER_BODY_MATERIAL,
+  );
   body.castShadow = true;
   group.add(body);
-  const gun = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.9), PLAYER_ACCENT_MATERIAL);
+  const gun = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.12, 0.9),
+    PLAYER_ACCENT_MATERIAL,
+  );
   gun.name = "gun";
   gun.position.set(0.36, 0.32, -0.45);
   gun.castShadow = true;
@@ -888,10 +1079,16 @@ function makePlayer() {
 
 function makeZombie() {
   const group = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 0.72, 5, 8), ZOMBIE_BODY_MATERIAL);
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.4, 0.72, 5, 8),
+    ZOMBIE_BODY_MATERIAL,
+  );
   body.castShadow = true;
   group.add(body);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.31, 10, 8), ZOMBIE_HEAD_MATERIAL);
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.31, 10, 8),
+    ZOMBIE_HEAD_MATERIAL,
+  );
   head.position.y = 0.75;
   head.castShadow = true;
   group.add(head);
@@ -929,7 +1126,9 @@ function isEditableTarget(target: EventTarget | null) {
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/35 p-3">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-600">{label}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-600">
+        {label}
+      </div>
       <div className="mt-1 font-mono text-sm text-zinc-200">{value}</div>
     </div>
   );
