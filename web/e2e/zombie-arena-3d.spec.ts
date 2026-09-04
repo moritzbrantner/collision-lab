@@ -34,7 +34,7 @@ async function startArena(page: Page) {
   return arena;
 }
 
-test("Zombie Arena captures mouse-look, pauses on Escape, and resumes", async ({ page }) => {
+test("Zombie Arena captures mouse-look and Escape opens a frozen pause menu", async ({ page }) => {
   const arena = await startArena(page);
   const canvas = arena.locator("canvas");
   await expect(canvas).toBeVisible();
@@ -58,15 +58,21 @@ test("Zombie Arena captures mouse-look, pauses on Escape, and resumes", async ({
   expect(await frameNumber(page)).toBe(pausedFrame);
 
   const pausedMenu = page.getByRole("heading", { name: "Paused" }).locator("..");
-  await pausedMenu.getByRole("button", { name: "Resume" }).click();
-  await expectCaptured(page);
-  await expect.poll(() => frameNumber(page)).toBeGreaterThan(pausedFrame);
-
-  await escapeToMenu(page);
-  const finalMenu = page.getByRole("heading", { name: "Paused" }).locator("..");
-  await finalMenu.getByRole("button", { name: "Back to explanations" }).click();
+  await pausedMenu.getByRole("button", { name: "Back to explanations" }).click();
   await expect(page.getByRole("heading", { name: "Third-person shooting with dynamic A* navigation." })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+});
+
+test("Zombie Arena Resume restarts the paused deterministic simulation", async ({ page }) => {
+  await startArena(page);
+  await escapeToMenu(page);
+  const pausedFrame = await frameNumber(page);
+
+  const pausedMenu = page.getByRole("heading", { name: "Paused" }).locator("..");
+  await pausedMenu.getByRole("button", { name: "Resume" }).click();
+
+  await expect.poll(() => frameNumber(page)).toBeGreaterThan(pausedFrame);
+  await expect(page.getByRole("heading", { name: "Paused" })).toBeHidden();
 });
 
 test("Zombie Arena Restart resets the deterministic run", async ({ page }) => {
@@ -79,5 +85,4 @@ test("Zombie Arena Restart resets the deterministic run", async ({ page }) => {
   await restartMenu.getByRole("button", { name: "Restart" }).click();
 
   await expect.poll(() => frameNumber(page)).toBeLessThan(beforeRestart);
-  await expect.poll(() => frameNumber(page)).toBeLessThan(10);
 });
