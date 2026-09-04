@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ensureZombieArena3dWasm } from "../lib/zombie-arena-3d-runtime";
 import { ZombieArena3dNavigationComparison } from "./zombie-arena-3d-navigation-comparison";
 import { ZombieArena3dScenario } from "./zombie-arena-3d-scenario";
+import { ZombieArenaCharacterLab } from "./zombie-arena-character-lab";
 
 export function ZombieArena3dRuntime() {
   const [ready, setReady] = useState(false);
@@ -43,6 +44,7 @@ export function ZombieArena3dRuntime() {
   return (
     <>
       <ZombieArena3dScenario />
+      <ZombieArenaCharacterLab />
       <ZombieArena3dNavigationComparison />
     </>
   );
