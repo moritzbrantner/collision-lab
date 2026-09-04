@@ -314,10 +314,38 @@ fn idle_clip() -> Result<AnimationClip, String> {
     AnimationClip::new(
         "idle",
         vec![
-            rotation_track(TORSO, &[(0.0, euler(0.0, 0.0, -0.025)), (1.0, euler(0.0, 0.0, 0.025)), (2.0, euler(0.0, 0.0, -0.025))])?,
-            rotation_track(HEAD, &[(0.0, euler(0.0, -0.08, 0.0)), (1.0, euler(0.0, 0.08, 0.0)), (2.0, euler(0.0, -0.08, 0.0))])?,
-            rotation_track(LEFT_UPPER_ARM, &[(0.0, euler(-0.04, 0.0, -0.05)), (1.0, euler(0.04, 0.0, -0.02)), (2.0, euler(-0.04, 0.0, -0.05))])?,
-            rotation_track(RIGHT_UPPER_ARM, &[(0.0, euler(0.04, 0.0, 0.05)), (1.0, euler(-0.04, 0.0, 0.02)), (2.0, euler(0.04, 0.0, 0.05))])?,
+            rotation_track(
+                TORSO,
+                &[
+                    (0.0, euler(0.0, 0.0, -0.025)),
+                    (1.0, euler(0.0, 0.0, 0.025)),
+                    (2.0, euler(0.0, 0.0, -0.025)),
+                ],
+            )?,
+            rotation_track(
+                HEAD,
+                &[
+                    (0.0, euler(0.0, -0.08, 0.0)),
+                    (1.0, euler(0.0, 0.08, 0.0)),
+                    (2.0, euler(0.0, -0.08, 0.0)),
+                ],
+            )?,
+            rotation_track(
+                LEFT_UPPER_ARM,
+                &[
+                    (0.0, euler(-0.04, 0.0, -0.05)),
+                    (1.0, euler(0.04, 0.0, -0.02)),
+                    (2.0, euler(-0.04, 0.0, -0.05)),
+                ],
+            )?,
+            rotation_track(
+                RIGHT_UPPER_ARM,
+                &[
+                    (0.0, euler(0.04, 0.0, 0.05)),
+                    (1.0, euler(-0.04, 0.0, 0.02)),
+                    (2.0, euler(0.04, 0.0, 0.05)),
+                ],
+            )?,
         ],
     )
     .map_err(|error| error.to_string())
@@ -332,9 +360,24 @@ fn walk_clip() -> Result<AnimationClip, String> {
             rotation_track_angles(RIGHT_THIGH, &cycle, &[-0.58, 0.0, 0.58, 0.0, -0.58])?,
             rotation_track_angles(LEFT_SHIN, &cycle, &[0.08, 0.3, 0.08, -0.12, 0.08])?,
             rotation_track_angles(RIGHT_SHIN, &cycle, &[0.08, -0.12, 0.08, 0.3, 0.08])?,
-            rotation_track_angles(LEFT_UPPER_ARM, &cycle, &[-0.46, 0.0, 0.46, 0.0, -0.46])?,
-            rotation_track_angles(RIGHT_UPPER_ARM, &cycle, &[0.46, 0.0, -0.46, 0.0, 0.46])?,
-            rotation_track(TORSO, &[(0.0, euler(0.04, -0.06, 0.0)), (0.5, euler(0.04, 0.06, 0.0)), (1.0, euler(0.04, -0.06, 0.0))])?,
+            rotation_track_angles(
+                LEFT_UPPER_ARM,
+                &cycle,
+                &[-0.46, 0.0, 0.46, 0.0, -0.46],
+            )?,
+            rotation_track_angles(
+                RIGHT_UPPER_ARM,
+                &cycle,
+                &[0.46, 0.0, -0.46, 0.0, 0.46],
+            )?,
+            rotation_track(
+                TORSO,
+                &[
+                    (0.0, euler(0.04, -0.06, 0.0)),
+                    (0.5, euler(0.04, 0.06, 0.0)),
+                    (1.0, euler(0.04, -0.06, 0.0)),
+                ],
+            )?,
         ],
     )
     .map_err(|error| error.to_string())
@@ -344,11 +387,49 @@ fn attack_clip() -> Result<AnimationClip, String> {
     AnimationClip::new(
         "attack",
         vec![
-            rotation_track(TORSO, &[(0.0, euler(0.0, 0.0, 0.0)), (0.2, euler(0.16, 0.0, 0.0)), (0.42, euler(0.22, 0.0, 0.0)), (0.7, euler(0.0, 0.0, 0.0))])?,
-            rotation_track(LEFT_UPPER_ARM, &[(0.0, euler(0.0, 0.0, -0.04)), (0.2, euler(1.18, 0.0, -0.1)), (0.42, euler(1.4, 0.0, -0.08)), (0.7, euler(0.0, 0.0, -0.04))])?,
-            rotation_track(RIGHT_UPPER_ARM, &[(0.0, euler(0.0, 0.0, 0.04)), (0.2, euler(1.18, 0.0, 0.1)), (0.42, euler(1.4, 0.0, 0.08)), (0.7, euler(0.0, 0.0, 0.04))])?,
-            rotation_track(LEFT_LOWER_ARM, &[(0.0, euler(0.0, 0.0, 0.0)), (0.28, euler(0.34, 0.0, 0.0)), (0.7, euler(0.0, 0.0, 0.0))])?,
-            rotation_track(RIGHT_LOWER_ARM, &[(0.0, euler(0.0, 0.0, 0.0)), (0.28, euler(0.34, 0.0, 0.0)), (0.7, euler(0.0, 0.0, 0.0))])?,
+            rotation_track(
+                TORSO,
+                &[
+                    (0.0, euler(0.0, 0.0, 0.0)),
+                    (0.2, euler(0.16, 0.0, 0.0)),
+                    (0.42, euler(0.22, 0.0, 0.0)),
+                    (0.7, euler(0.0, 0.0, 0.0)),
+                ],
+            )?,
+            rotation_track(
+                LEFT_UPPER_ARM,
+                &[
+                    (0.0, euler(0.0, 0.0, -0.04)),
+                    (0.2, euler(1.18, 0.0, -0.1)),
+                    (0.42, euler(1.4, 0.0, -0.08)),
+                    (0.7, euler(0.0, 0.0, -0.04)),
+                ],
+            )?,
+            rotation_track(
+                RIGHT_UPPER_ARM,
+                &[
+                    (0.0, euler(0.0, 0.0, 0.04)),
+                    (0.2, euler(1.18, 0.0, 0.1)),
+                    (0.42, euler(1.4, 0.0, 0.08)),
+                    (0.7, euler(0.0, 0.0, 0.04)),
+                ],
+            )?,
+            rotation_track(
+                LEFT_LOWER_ARM,
+                &[
+                    (0.0, euler(0.0, 0.0, 0.0)),
+                    (0.28, euler(0.34, 0.0, 0.0)),
+                    (0.7, euler(0.0, 0.0, 0.0)),
+                ],
+            )?,
+            rotation_track(
+                RIGHT_LOWER_ARM,
+                &[
+                    (0.0, euler(0.0, 0.0, 0.0)),
+                    (0.28, euler(0.34, 0.0, 0.0)),
+                    (0.7, euler(0.0, 0.0, 0.0)),
+                ],
+            )?,
         ],
     )
     .map_err(|error| error.to_string())
@@ -357,9 +438,18 @@ fn attack_clip() -> Result<AnimationClip, String> {
 fn death_clip() -> Result<AnimationClip, String> {
     let translation = KeyframeTrack::new(
         vec![
-            Keyframe { time: 0.0, value: Vec3::ZERO },
-            Keyframe { time: 0.45, value: Vec3::new(0.0, -0.12, 0.0) },
-            Keyframe { time: 1.1, value: Vec3::new(0.0, -0.72, 0.0) },
+            Keyframe {
+                time: 0.0,
+                value: Vec3::ZERO,
+            },
+            Keyframe {
+                time: 0.45,
+                value: Vec3::new(0.0, -0.12, 0.0),
+            },
+            Keyframe {
+                time: 1.1,
+                value: Vec3::new(0.0, -0.72, 0.0),
+            },
         ],
         Interpolation::SmoothStep,
     )
@@ -367,10 +457,29 @@ fn death_clip() -> Result<AnimationClip, String> {
     AnimationClip::new(
         "death",
         vec![
-            AnimationTrack::Translation { node: ROOT, track: translation },
-            rotation_track(ROOT, &[(0.0, euler(0.0, 0.0, 0.0)), (0.45, euler(0.12, 0.0, 0.55)), (1.1, euler(0.22, 0.0, 1.45))])?,
-            rotation_track(LEFT_UPPER_ARM, &[(0.0, euler(0.0, 0.0, -0.04)), (1.1, euler(-0.72, 0.0, -0.55))])?,
-            rotation_track(RIGHT_UPPER_ARM, &[(0.0, euler(0.0, 0.0, 0.04)), (1.1, euler(0.55, 0.0, 0.48))])?,
+            AnimationTrack::Translation {
+                node: ROOT,
+                track: translation,
+            },
+            rotation_track(
+                ROOT,
+                &[
+                    (0.0, euler(0.0, 0.0, 0.0)),
+                    (0.45, euler(0.12, 0.0, 0.55)),
+                    (1.1, euler(0.22, 0.0, 1.45)),
+                ],
+            )?,
+            rotation_track(
+                LEFT_UPPER_ARM,
+                &[
+                    (0.0, euler(0.0, 0.0, -0.04)),
+                    (1.1, euler(-0.72, 0.0, -0.55)),
+                ],
+            )?,
+            rotation_track(
+                RIGHT_UPPER_ARM,
+                &[(0.0, euler(0.0, 0.0, 0.04)), (1.1, euler(0.55, 0.0, 0.48))],
+            )?,
         ],
     )
     .map_err(|error| error.to_string())
@@ -430,22 +539,29 @@ mod tests {
         assert_eq!(model["nodes"].as_array().unwrap().len(), NODE_COUNT);
         assert_eq!(model["mesh"]["vertexCount"], 8);
         assert_eq!(model["mesh"]["triangleCount"], 12);
-        assert_eq!(model["nodes"][HEAD]["parent"], TORSO);
+        assert_eq!(model["nodes"][HEAD]["parent"].as_u64(), Some(TORSO as u64));
     }
 
     #[test]
     fn walk_swings_opposite_legs() {
         let animator = HumanoidAnimator::new_inner().unwrap();
         let pose = pose(&animator, ClipKind::Walk, 0.0);
-        let left = pose["nodes"][LEFT_THIGH]["rotation"][0].as_f64().unwrap();
-        let right = pose["nodes"][RIGHT_THIGH]["rotation"][0].as_f64().unwrap();
+        let left = pose["nodes"][LEFT_THIGH]["rotation"][0]
+            .as_f64()
+            .unwrap();
+        let right = pose["nodes"][RIGHT_THIGH]["rotation"][0]
+            .as_f64()
+            .unwrap();
         assert!(left * right < 0.0);
     }
 
     #[test]
     fn looping_clips_repeat_but_death_clamps() {
         let animator = HumanoidAnimator::new_inner().unwrap();
-        assert_eq!(pose(&animator, ClipKind::Walk, 0.25), pose(&animator, ClipKind::Walk, 1.25));
+        assert_eq!(
+            pose(&animator, ClipKind::Walk, 0.25),
+            pose(&animator, ClipKind::Walk, 1.25)
+        );
         let death_end = pose(&animator, ClipKind::Death, 1.1);
         let death_late = pose(&animator, ClipKind::Death, 8.0);
         assert_eq!(death_end, death_late);
@@ -457,7 +573,12 @@ mod tests {
         let death = pose(&animator, ClipKind::Death, 1.1);
         assert!(death["nodes"][ROOT]["translation"][1].as_f64().unwrap() < -0.6);
         let rotation = death["nodes"][ROOT]["rotation"].as_array().unwrap();
-        assert!(rotation.iter().take(3).any(|value| value.as_f64().unwrap().abs() > 0.1));
+        assert!(
+            rotation
+                .iter()
+                .take(3)
+                .any(|value| value.as_f64().unwrap().abs() > 0.1)
+        );
     }
 
     #[test]
