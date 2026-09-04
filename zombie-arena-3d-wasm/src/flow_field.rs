@@ -111,9 +111,7 @@ mod tests {
 
     #[test]
     fn field_respects_blocked_wall_and_unreachable_region() {
-        let blocked = (-2..=2)
-            .map(|z| Cell { x: 0, z })
-            .collect::<BTreeSet<_>>();
+        let blocked = (-2..=2).map(|z| Cell { x: 0, z }).collect::<BTreeSet<_>>();
         let field = FlowField::build(Cell { x: 2, z: 0 }, &blocked, -2, 2);
         assert!(field.next_cell(Cell { x: -2, z: 0 }).is_none());
         assert!(field.next_cell(Cell { x: 1, z: 0 }).is_some());
