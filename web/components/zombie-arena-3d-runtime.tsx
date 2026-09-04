@@ -25,6 +25,16 @@ export function ZombieArena3dRuntime() {
     };
   }, []);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && document.pointerLockElement) {
+        document.exitPointerLock();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   if (error) {
     return (
       <section className="rounded-3xl border border-red-900/60 bg-red-950/25 p-6 text-sm text-red-300">
