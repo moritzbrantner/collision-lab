@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { ZombieArena3dNavigationComparison } from "../../../components/zombie-arena-3d-navigation-comparison";
 import { ZombieArena3dScenario } from "../../../components/zombie-arena-3d-scenario";
 
 export const metadata: Metadata = {
   title: "Zombie Arena 3D",
   description:
-    "A deterministic third-person 3D zombie arena with Rust/WASM physics, projectile CCD, collision broad phases, and deterministic A* pathfinding.",
+    "A deterministic third-person 3D zombie arena with Rust/WASM physics, projectile CCD, collision broad phases, A* pathfinding, and shared flow-field navigation.",
 };
 
 export default function ZombieArena3dPage() {
@@ -24,6 +25,7 @@ export default function ZombieArena3dPage() {
         </Link>
       </div>
       <ZombieArena3dScenario />
+      <ZombieArena3dNavigationComparison />
     </main>
   );
 }
