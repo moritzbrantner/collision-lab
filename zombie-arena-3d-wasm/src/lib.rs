@@ -331,10 +331,11 @@ impl ZombieArena3dWorld {
                 .copied()
                 .map(cell_to_world)
                 .unwrap_or(self.player.position);
-            let toward = [target[0] - zombie.position[0], target[2] - zombie.position[2]];
-            if length_squared2(toward) < 0.10 * 0.10
-                && zombie.path_cursor + 1 < zombie.path.len()
-            {
+            let toward = [
+                target[0] - zombie.position[0],
+                target[2] - zombie.position[2],
+            ];
+            if length_squared2(toward) < 0.10 * 0.10 && zombie.path_cursor + 1 < zombie.path.len() {
                 zombie.path_cursor += 1;
             }
 
@@ -763,12 +764,7 @@ fn move_with_sliding_3d(
     next
 }
 
-fn move_vertical(
-    position: [f32; 3],
-    half: [f32; 3],
-    delta_y: f32,
-    walls: &[Wall],
-) -> (f32, bool) {
+fn move_vertical(position: [f32; 3], half: [f32; 3], delta_y: f32, walls: &[Wall]) -> (f32, bool) {
     let floor_y = half[1];
     let desired = position[1] + delta_y;
     if desired <= floor_y {
@@ -832,11 +828,7 @@ fn blocked_navigation_cells(walls: &[Wall]) -> BTreeSet<Cell> {
     let mut blocked = BTreeSet::new();
     for x in NAV_MIN..=NAV_MAX {
         for z in NAV_MIN..=NAV_MAX {
-            let center = [
-                x as f32 * NAV_CELL,
-                ZOMBIE_HALF[1],
-                z as f32 * NAV_CELL,
-            ];
+            let center = [x as f32 * NAV_CELL, ZOMBIE_HALF[1], z as f32 * NAV_CELL];
             if walls.iter().any(|wall| {
                 (center[0] - wall.position[0]).abs() < ZOMBIE_HALF[0] + wall.half[0]
                     && (center[2] - wall.position[2]).abs() < ZOMBIE_HALF[2] + wall.half[2]
@@ -867,12 +859,7 @@ fn cell_to_world(cell: Cell) -> [f32; 3] {
     ]
 }
 
-fn segment_aabb_toi(
-    from: [f32; 3],
-    to: [f32; 3],
-    aabb: Aabb,
-    radius: f32,
-) -> Option<f32> {
+fn segment_aabb_toi(from: [f32; 3], to: [f32; 3], aabb: Aabb, radius: f32) -> Option<f32> {
     let direction = sub3(to, from);
     let min = [
         aabb.min[0] - radius,
@@ -934,11 +921,7 @@ fn normalize3(value: [f32; 3]) -> Option<[f32; 3]> {
         None
     } else {
         let inverse = length_sq.sqrt().recip();
-        Some([
-            value[0] * inverse,
-            value[1] * inverse,
-            value[2] * inverse,
-        ])
+        Some([value[0] * inverse, value[1] * inverse, value[2] * inverse])
     }
 }
 
@@ -953,19 +936,11 @@ fn distance_squared_xz(left: [f32; 3], right: [f32; 3]) -> f32 {
 }
 
 fn add3(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {
-    [
-        left[0] + right[0],
-        left[1] + right[1],
-        left[2] + right[2],
-    ]
+    [left[0] + right[0], left[1] + right[1], left[2] + right[2]]
 }
 
 fn sub3(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {
-    [
-        left[0] - right[0],
-        left[1] - right[1],
-        left[2] - right[2],
-    ]
+    [left[0] - right[0], left[1] - right[1], left[2] - right[2]]
 }
 
 fn scale3(value: [f32; 3], scalar: f32) -> [f32; 3] {
