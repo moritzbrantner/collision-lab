@@ -111,10 +111,7 @@ pub(crate) fn astar(
             }
 
             let next_g = current.g.saturating_add(1);
-            if best_g
-                .get(&neighbor)
-                .is_some_and(|known| next_g >= *known)
-            {
+            if best_g.get(&neighbor).is_some_and(|known| next_g >= *known) {
                 continue;
             }
 
@@ -280,11 +277,7 @@ impl ZombieArena3dWorld {
         self.snapshot_json()
     }
 
-    pub fn remove_barricade_json(
-        &mut self,
-        world_x: f32,
-        world_z: f32,
-    ) -> Result<String, JsValue> {
+    pub fn remove_barricade_json(&mut self, world_x: f32, world_z: f32) -> Result<String, JsValue> {
         if !world_x.is_finite() || !world_z.is_finite() {
             return Err(JsValue::from_str("barricade position must be finite"));
         }
@@ -295,7 +288,9 @@ impl ZombieArena3dWorld {
             wall.id < BUILT_WALL_ID_BASE || super::world_to_cell(wall.position) != cell
         });
         if self.walls.len() == before {
-            return Err(JsValue::from_str("there is no built barricade in that cell"));
+            return Err(JsValue::from_str(
+                "there is no built barricade in that cell",
+            ));
         }
 
         self.invalidate_navigation();
