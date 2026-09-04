@@ -1,0 +1,15 @@
+[package]
+name = "collision-lab-zombie-arena-character-wasm"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde_json = "1"
+three-d-animation = { git = "https://github.com/moritzbrantner/3d-lab", rev = "416e3c9cd3bbc2fe6bb258eb1e04cf1245d9346e" }
+three-d-core = { git = "https://github.com/moritzbrantner/3d-lab", rev = "416e3c9cd3bbc2fe6bb258eb1e04cf1245d9346e" }
+wasm-bindgen = "0.2"
