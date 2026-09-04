@@ -18,7 +18,7 @@ impl FlowField {
     ) -> Self {
         let mut distances = BTreeMap::new();
         let mut frontier = VecDeque::new();
-        distances.insert(goal, 0);
+        distances.insert(goal, 0_u32);
         frontier.push_back(goal);
         let mut expanded = 0_u32;
 
