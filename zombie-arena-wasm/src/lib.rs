@@ -1,4 +1,4 @@
-use collision_lab::{run_algorithm, Algorithm, Config, Scenario};
+use collision_lab::{Algorithm, Config, Scenario, run_algorithm};
 use serde_json::json;
 use spatial_kernels::{Aabb, Body, Pair};
 use wasm_bindgen::prelude::*;
@@ -134,11 +134,7 @@ impl ZombieArenaWorld {
         aim_y: f32,
         shoot: bool,
     ) -> Result<String, JsValue> {
-        if !move_x.is_finite()
-            || !move_y.is_finite()
-            || !aim_x.is_finite()
-            || !aim_y.is_finite()
-        {
+        if !move_x.is_finite() || !move_y.is_finite() || !aim_x.is_finite() || !aim_y.is_finite() {
             return Err(JsValue::from_str("arena input must be finite"));
         }
         self.step([move_x, move_y], [aim_x, aim_y], shoot);
@@ -215,12 +211,8 @@ impl ZombieArenaWorld {
             movement[0] * PLAYER_SPEED * FIXED_DT,
             movement[1] * PLAYER_SPEED * FIXED_DT,
         ];
-        self.player.position = move_with_sliding(
-            self.player.position,
-            PLAYER_HALF,
-            player_delta,
-            &self.walls,
-        );
+        self.player.position =
+            move_with_sliding(self.player.position, PLAYER_HALF, player_delta, &self.walls);
 
         if shoot && self.fire_cooldown <= 0.0 {
             self.fire();
@@ -237,8 +229,7 @@ impl ZombieArenaWorld {
                 direction[0] * ZOMBIE_SPEED * FIXED_DT,
                 direction[1] * ZOMBIE_SPEED * FIXED_DT,
             ];
-            zombie.position =
-                move_with_sliding(zombie.position, ZOMBIE_HALF, delta, &self.walls);
+            zombie.position = move_with_sliding(zombie.position, ZOMBIE_HALF, delta, &self.walls);
         }
 
         self.step_bullets();
@@ -661,10 +652,7 @@ fn wall(id: u32, position: [f32; 2], half: [f32; 2]) -> Wall {
 }
 
 fn actor_aabb(position: [f32; 2], half: [f32; 2]) -> Aabb {
-    Aabb::from_center_half_extents(
-        [position[0], position[1], 0.0],
-        [half[0], half[1], 0.35],
-    )
+    Aabb::from_center_half_extents([position[0], position[1], 0.0], [half[0], half[1], 0.35])
 }
 
 fn wall_aabb(wall: Wall) -> Aabb {
@@ -676,16 +664,8 @@ fn wall_aabb(wall: Wall) -> Aabb {
 
 fn expanded(aabb: Aabb, amount: f32) -> Aabb {
     Aabb {
-        min: [
-            aabb.min[0] - amount,
-            aabb.min[1] - amount,
-            aabb.min[2],
-        ],
-        max: [
-            aabb.max[0] + amount,
-            aabb.max[1] + amount,
-            aabb.max[2],
-        ],
+        min: [aabb.min[0] - amount, aabb.min[1] - amount, aabb.min[2]],
+        max: [aabb.max[0] + amount, aabb.max[1] + amount, aabb.max[2]],
     }
 }
 
@@ -715,17 +695,10 @@ fn move_with_sliding(
 
 fn collides_with_walls(position: [f32; 2], half: [f32; 2], walls: &[Wall]) -> bool {
     let aabb = actor_aabb(position, half);
-    walls
-        .iter()
-        .any(|wall| aabb.overlaps(wall_aabb(*wall)))
+    walls.iter().any(|wall| aabb.overlaps(wall_aabb(*wall)))
 }
 
-fn segment_aabb_toi(
-    from: [f32; 2],
-    to: [f32; 2],
-    target: Aabb,
-    radius: f32,
-) -> Option<f32> {
+fn segment_aabb_toi(from: [f32; 2], to: [f32; 2], target: Aabb, radius: f32) -> Option<f32> {
     let min = [target.min[0] - radius, target.min[1] - radius];
     let max = [target.max[0] + radius, target.max[1] + radius];
     let delta = [to[0] - from[0], to[1] - from[1]];
@@ -822,8 +795,7 @@ mod tests {
 
     #[test]
     fn swept_bullet_detects_a_thin_box_between_endpoints() {
-        let target =
-            Aabb::from_center_half_extents([0.0, 0.0, 0.0], [0.2, 0.8, 0.5]);
+        let target = Aabb::from_center_half_extents([0.0, 0.0, 0.0], [0.2, 0.8, 0.5]);
         let time = segment_aabb_toi([-2.0, 0.0], [2.0, 0.0], target, 0.05).unwrap();
         assert!(time > 0.4 && time < 0.5);
     }
