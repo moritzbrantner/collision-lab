@@ -108,11 +108,26 @@ export default function ExplainPage() {
         <Obb3SatExplanation />
       </div>
 
+      <section className="mt-14 overflow-hidden rounded-3xl border border-cyan-900/50 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.10),transparent_22rem)] p-6 sm:p-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400/70">Continue the narrow phase</p>
+        <div className="mt-3 grid items-end gap-6 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="max-w-4xl">
+            <h2 className="text-3xl font-semibold tracking-tight text-zinc-100">Beyond boxes: convex proxies, support mappings, GJK, and EPA.</h2>
+            <p className="mt-3 leading-7 text-zinc-500">
+              SAT is a natural bridge into general convex collision. The next page shows how detailed shapes become convex proxies, how a support function exposes their extremes, how GJK searches the Minkowski difference, and how EPA turns an overlap simplex into penetration depth.
+            </p>
+          </div>
+          <Link href="/convex/" className="inline-flex rounded-xl bg-cyan-100 px-5 py-3 text-sm font-semibold text-cyan-950 transition hover:bg-white">
+            Open convex collision →
+          </Link>
+        </div>
+      </section>
+
       <section className="mt-12 grid gap-4 md:grid-cols-3">
         {[
           ["Broad phase filters", "Grid, sweep, BVH, dynamic trees, and octrees reduce the pair set. Their job is not necessarily to understand the exact render/physics shape."],
           ["Narrow phase proves", "Sphere/AABB formulas and 2D/3D OBB SAT answer the exact primitive collision question for one surviving pair using Rust geometry kernels."],
-          ["Generalization path", "SAT establishes projection-based convex reasoning. Capsules and support mappings are the next bridge toward GJK and EPA."],
+          ["Generalization path", "SAT establishes projection-based convex reasoning. The convex deep dive continues with support mappings, GJK, EPA, and shape approximation."],
         ].map(([title, copy]) => (
           <div key={title} className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
             <h2 className="font-semibold text-zinc-200">{title}</h2>
