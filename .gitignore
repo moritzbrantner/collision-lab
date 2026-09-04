@@ -1,6 +1,8 @@
 /target
 /wasm/target
+/zombie-arena-wasm/target
 /web/node_modules
 /web/.next
 /web/out
 /web/lib/wasm-pkg
+/web/lib/zombie-arena-wasm-pkg
