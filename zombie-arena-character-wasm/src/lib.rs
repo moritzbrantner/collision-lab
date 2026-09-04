@@ -360,16 +360,8 @@ fn walk_clip() -> Result<AnimationClip, String> {
             rotation_track_angles(RIGHT_THIGH, &cycle, &[-0.58, 0.0, 0.58, 0.0, -0.58])?,
             rotation_track_angles(LEFT_SHIN, &cycle, &[0.08, 0.3, 0.08, -0.12, 0.08])?,
             rotation_track_angles(RIGHT_SHIN, &cycle, &[0.08, -0.12, 0.08, 0.3, 0.08])?,
-            rotation_track_angles(
-                LEFT_UPPER_ARM,
-                &cycle,
-                &[-0.46, 0.0, 0.46, 0.0, -0.46],
-            )?,
-            rotation_track_angles(
-                RIGHT_UPPER_ARM,
-                &cycle,
-                &[0.46, 0.0, -0.46, 0.0, 0.46],
-            )?,
+            rotation_track_angles(LEFT_UPPER_ARM, &cycle, &[-0.46, 0.0, 0.46, 0.0, -0.46])?,
+            rotation_track_angles(RIGHT_UPPER_ARM, &cycle, &[0.46, 0.0, -0.46, 0.0, 0.46])?,
             rotation_track(
                 TORSO,
                 &[
@@ -546,12 +538,8 @@ mod tests {
     fn walk_swings_opposite_legs() {
         let animator = HumanoidAnimator::new_inner().unwrap();
         let pose = pose(&animator, ClipKind::Walk, 0.0);
-        let left = pose["nodes"][LEFT_THIGH]["rotation"][0]
-            .as_f64()
-            .unwrap();
-        let right = pose["nodes"][RIGHT_THIGH]["rotation"][0]
-            .as_f64()
-            .unwrap();
+        let left = pose["nodes"][LEFT_THIGH]["rotation"][0].as_f64().unwrap();
+        let right = pose["nodes"][RIGHT_THIGH]["rotation"][0].as_f64().unwrap();
         assert!(left * right < 0.0);
     }
 
