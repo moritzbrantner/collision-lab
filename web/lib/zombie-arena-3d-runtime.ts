@@ -10,6 +10,7 @@ type SnapshotMethodName =
   | "build_json"
   | "remove_barricade_json";
 type SnapshotMethod = (this: ZombieArena3dWorld, ...args: unknown[]) => string;
+type InstrumentedPrototype = Record<SnapshotMethodName, SnapshotMethod> & Record<symbol, unknown>;
 
 export const ZOMBIE_ARENA_3D_SNAPSHOT_EVENT = "zombie-arena-3d-snapshot";
 export const ZOMBIE_ARENA_3D_LABEL = "Third-person 3D Zombie Arena";
@@ -21,9 +22,11 @@ const SNAPSHOT_METHODS: SnapshotMethodName[] = [
   "build_json",
   "remove_barricade_json",
 ];
+const DIAGNOSTICS_BRIDGE_FLAG = Symbol.for("collision-lab.zombie-arena-3d-diagnostics");
+const MIN_DIAGNOSTICS_PUBLISH_INTERVAL_MS = 100;
 
 let initialization: Promise<ZombieArena3dWasm> | null = null;
-let diagnosticsInstalled = false;
+let lastDiagnosticsPublishAt = 0;
 
 export function ensureZombieArena3dWasm(): Promise<ZombieArena3dWasm> {
   if (!initialization) {
@@ -40,12 +43,10 @@ export function ensureZombieArena3dWasm(): Promise<ZombieArena3dWasm> {
 }
 
 function installDiagnosticsBridge() {
-  if (diagnosticsInstalled || typeof window === "undefined") return;
+  if (typeof window === "undefined") return;
 
-  const prototype = ZombieArena3dWorld.prototype as unknown as Record<
-    SnapshotMethodName,
-    SnapshotMethod
-  >;
+  const prototype = ZombieArena3dWorld.prototype as unknown as InstrumentedPrototype;
+  if (prototype[DIAGNOSTICS_BRIDGE_FLAG]) return;
 
   for (const methodName of SNAPSHOT_METHODS) {
     const original = prototype[methodName];
@@ -59,13 +60,17 @@ function installDiagnosticsBridge() {
     };
   }
 
-  diagnosticsInstalled = true;
+  prototype[DIAGNOSTICS_BRIDGE_FLAG] = true;
 }
 
 function publishGameplaySnapshot(raw: string) {
   const captured = document.pointerLockElement;
   if (!(captured instanceof HTMLElement)) return;
   if (captured.getAttribute("aria-label") !== ZOMBIE_ARENA_3D_LABEL) return;
+
+  const now = performance.now();
+  if (now - lastDiagnosticsPublishAt < MIN_DIAGNOSTICS_PUBLISH_INTERVAL_MS) return;
+  lastDiagnosticsPublishAt = now;
 
   window.dispatchEvent(
     new CustomEvent<string>(ZOMBIE_ARENA_3D_SNAPSHOT_EVENT, {
