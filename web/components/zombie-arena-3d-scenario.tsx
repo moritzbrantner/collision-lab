@@ -8,7 +8,6 @@ import initZombie3dWasm, {
 } from "../lib/zombie-arena-3d-wasm-pkg/zombie_arena_3d_wasm";
 
 type Vec3 = [number, number, number];
-
 type ActorSnapshot = {
   id: number;
   position: Vec3;
@@ -16,32 +15,24 @@ type ActorSnapshot = {
   health: number;
   maxHealth: number;
 };
-
 type PlayerSnapshot = ActorSnapshot & {
   velocity: Vec3;
   aim: Vec3;
   grounded: boolean;
 };
-
 type WallSnapshot = {
   id: number;
   position: Vec3;
   half: Vec3;
   low: boolean;
 };
-
 type BulletSnapshot = {
   id: number;
   position: Vec3;
   previousPosition: Vec3;
   radius: number;
 };
-
-type PathSnapshot = {
-  zombieId: number;
-  waypoints: Vec3[];
-};
-
+type PathSnapshot = { zombieId: number; waypoints: Vec3[] };
 type Arena3dSnapshot = {
   frame: number;
   algorithm: string;
@@ -86,7 +77,6 @@ type Arena3dSnapshot = {
   };
   gameOver: boolean;
 };
-
 type RenderResources = {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -100,8 +90,6 @@ type RenderResources = {
   pathGroup: THREE.Group;
   navGroup: THREE.Group;
   blockedMesh: THREE.InstancedMesh | null;
-  resizeObserver: ResizeObserver;
-  animationFrame: number;
 };
 
 const SEED = 0x5a173d;
@@ -324,7 +312,6 @@ export function ZombieArena3dScenario() {
 
     const pathGroup = new THREE.Group();
     scene.add(pathGroup);
-
     const player = makePlayer();
     scene.add(player);
 
@@ -341,8 +328,6 @@ export function ZombieArena3dScenario() {
       pathGroup,
       navGroup,
       blockedMesh: null,
-      resizeObserver: new ResizeObserver(() => undefined),
-      animationFrame: 0,
     };
 
     const resizeObserver = new ResizeObserver(() => {
@@ -353,7 +338,6 @@ export function ZombieArena3dScenario() {
       camera.updateProjectionMatrix();
     });
     resizeObserver.observe(mount);
-    resources.resizeObserver = resizeObserver;
     renderRef.current = resources;
 
     let animationFrame = 0;
@@ -370,7 +354,6 @@ export function ZombieArena3dScenario() {
       }
       renderer.render(scene, camera);
       animationFrame = requestAnimationFrame(render);
-      resources.animationFrame = animationFrame;
     };
     render();
 
@@ -392,14 +375,12 @@ export function ZombieArena3dScenario() {
 
   useEffect(() => {
     const resources = renderRef.current;
-    if (!resources) return;
-    resources.pathGroup.visible = showPaths;
+    if (resources) resources.pathGroup.visible = showPaths;
   }, [showPaths]);
 
   useEffect(() => {
     const resources = renderRef.current;
-    if (!resources) return;
-    resources.navGroup.visible = showNavGrid;
+    if (resources) resources.navGroup.visible = showNavGrid;
   }, [showNavGrid]);
 
   const broadPhaseAvoided = useMemo(() => {
@@ -492,7 +473,6 @@ export function ZombieArena3dScenario() {
       <div className="grid xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 p-4 sm:p-6">
           <div
-            ref={mountRef}
             tabIndex={0}
             role="application"
             aria-label="Third-person 3D Zombie Arena"
@@ -522,6 +502,7 @@ export function ZombieArena3dScenario() {
             onContextMenu={(event) => event.preventDefault()}
             className="relative min-h-[34rem] cursor-crosshair overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 outline-none focus:border-zinc-500"
           >
+            <div ref={mountRef} className="absolute inset-0" />
             <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-200/80">
               <span className="absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-100" />
             </div>
@@ -630,9 +611,9 @@ export function ZombieArena3dScenario() {
 function syncSnapshot(resources: RenderResources, snapshot: Arena3dSnapshot) {
   updateActor(resources.player, snapshot.player.position, snapshot.player.aim);
   syncWalls(resources, snapshot.walls);
+  syncNavigation(resources, snapshot);
   syncZombies(resources, snapshot.zombies);
   syncBullets(resources, snapshot.bullets);
-  syncNavigation(resources, snapshot);
 }
 
 function syncWalls(resources: RenderResources, walls: WallSnapshot[]) {
@@ -678,13 +659,11 @@ function syncZombies(resources: RenderResources, zombies: ActorSnapshot[]) {
       resources.zombies.set(zombie.id, group);
     }
     group.position.set(...zombie.position);
-    const path = resources.pathLines.get(zombie.id);
-    const next = path?.geometry.getAttribute("position");
-    if (next && next.count > 0) {
-      const nextX = next.getX(0);
-      const nextZ = next.getZ(0);
-      const dx = nextX - zombie.position[0];
-      const dz = nextZ - zombie.position[2];
+    const line = resources.pathLines.get(zombie.id);
+    const position = line?.geometry.getAttribute("position");
+    if (position && position.count > 0) {
+      const dx = position.getX(0) - zombie.position[0];
+      const dz = position.getZ(0) - zombie.position[2];
       if (Math.abs(dx) + Math.abs(dz) > 0.001) {
         group.rotation.y = Math.atan2(dx, dz);
       }
@@ -854,14 +833,14 @@ function makeZombie() {
 }
 
 function disposeResources(resources: RenderResources) {
-  resources.pathLines.forEach((line) => line.geometry.dispose());
-  resources.bullets.forEach((mesh) => mesh.geometry.dispose());
-  resources.walls.forEach((mesh) => mesh.geometry.dispose());
-  resources.zombies.forEach(disposeObject);
-  disposeObject(resources.player);
-  resources.blockedMesh?.geometry.dispose();
   resources.scene.traverse((object) => {
-    if (object instanceof THREE.Mesh && object.geometry) object.geometry.dispose();
+    if (
+      object instanceof THREE.Mesh ||
+      object instanceof THREE.Line ||
+      object instanceof THREE.LineSegments
+    ) {
+      object.geometry.dispose();
+    }
   });
 }
 
