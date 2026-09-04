@@ -8,3 +8,5 @@
 /web/lib/wasm-pkg
 /web/lib/zombie-arena-wasm-pkg
 /web/lib/zombie-arena-3d-wasm-pkg
+/web/playwright-report
+/web/test-results

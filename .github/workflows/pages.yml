@@ -48,6 +48,8 @@ jobs:
       - run: bun run wasm
       - run: bun run typecheck
       - run: bun run build
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:e2e
       - uses: actions/configure-pages@v5
         if: github.event_name == 'push'
         with:

@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { ZombieArena3dNavigationComparison } from "../../../components/zombie-arena-3d-navigation-comparison";
-import { ZombieArena3dScenario } from "../../../components/zombie-arena-3d-scenario";
-import { ZombieArenaCharacterLab } from "../../../components/zombie-arena-character-lab";
+import { ZombieArena3dRuntime } from "../../../components/zombie-arena-3d-runtime";
 
 export const metadata: Metadata = {
   title: "Zombie Arena 3D",
@@ -25,9 +23,7 @@ export default function ZombieArena3dPage() {
           Compare the 2D arena →
         </Link>
       </div>
-      <ZombieArena3dScenario />
-      <ZombieArenaCharacterLab />
-      <ZombieArena3dNavigationComparison />
+      <ZombieArena3dRuntime />
     </main>
   );
 }
