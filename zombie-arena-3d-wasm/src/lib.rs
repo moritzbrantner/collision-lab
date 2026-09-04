@@ -133,7 +133,8 @@ impl ZombieArena3dWorld {
     }
 
     pub fn snapshot_json(&self) -> Result<String, JsValue> {
-        self.snapshot().map_err(|error| JsValue::from_str(&error))
+        self.snapshot()
+            .map_err(|error| JsValue::from_str(&error.to_string()))
     }
 
     pub fn set_algorithm(&mut self, algorithm: &str) -> Result<String, JsValue> {
