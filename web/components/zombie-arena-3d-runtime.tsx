@@ -28,6 +28,7 @@ export function ZombieArena3dRuntime() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && document.pointerLockElement) {
+        event.preventDefault();
         document.exitPointerLock();
       }
     };
