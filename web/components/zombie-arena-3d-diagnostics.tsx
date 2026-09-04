@@ -249,7 +249,7 @@ function DiagnosticsPanel({
         <DiagnosticRow label="simulation frame" value={snapshot?.frame ?? "—"} />
         <DiagnosticRow label="pointer / fullscreen" value={`${sample.pointerLocked ? "locked" : "free"} / ${sample.fullscreen ? "yes" : "no"}`} />
       </DiagnosticSection>
-    </aside>,
+    </aside>
   );
 }
 
