@@ -6,7 +6,7 @@ license = "MIT"
 rust-version = "1.85"
 
 [dependencies]
-bvh-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "986bff4dc8d13a64b90fab3a9f7f02bb8d1aa35e" }
-bvh-trace-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "986bff4dc8d13a64b90fab3a9f7f02bb8d1aa35e" }
-octree-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "986bff4dc8d13a64b90fab3a9f7f02bb8d1aa35e" }
-spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "986bff4dc8d13a64b90fab3a9f7f02bb8d1aa35e" }
+bvh-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "926d4423028f0a6b49f9a75a63bd6265ea89a205" }
+bvh-trace-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "926d4423028f0a6b49f9a75a63bd6265ea89a205" }
+octree-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "926d4423028f0a6b49f9a75a63bd6265ea89a205" }
+spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "926d4423028f0a6b49f9a75a63bd6265ea89a205" }
