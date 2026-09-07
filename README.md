@@ -12,9 +12,9 @@ The lab is intentionally separate from [`rust-kernels`](https://github.com/morit
 
 ### Explanation mode
 
-`/explain/` is the teaching surface. It uses small deterministic scenes, 2D diagrams, and projected 3D geometry to walk through real Rust algorithm decisions one step at a time. It now covers broad-phase pruning from naive all-pairs through grids, sweep-and-prune, BVHs, dynamic AABB trees, and octrees, followed by narrow-phase analytical primitives and 2D/3D OBB SAT.
+`/explain/` is the teaching surface. It uses small deterministic scenes, 2D diagrams, and projected 3D geometry to walk through real Rust algorithm decisions one step at a time. It now covers broad-phase pruning from naive all-pairs through grids, sweep-and-prune, BVHs, dynamic AABB trees, and octrees, followed by narrow-phase analytical primitives, 2D/3D OBB SAT, and closest-point capsule/common-primitive pairs.
 
-The web layer does not reimplement collision decisions. It obtains overlap results, execution traces, axes, projections, and work counters from Rust/WASM, then projects that state into SVG.
+The web layer does not reimplement collision decisions. It obtains overlap results, execution traces, axes, projections, closest features, and work counters from Rust/WASM, then projects that state into SVG.
 
 ### Experiment mode
 
@@ -45,6 +45,9 @@ All optimized broad phases are differential-tested against the naive reference a
 
 - **sphere ↔ sphere** — exact squared-center-distance test
 - **AABB ↔ AABB** — exact interval overlap on all three world axes
+- **sphere ↔ AABB** — closest point on the box compared with the sphere radius
+- **sphere ↔ capsule** — closest point on the finite capsule axis plus the two radii
+- **capsule ↔ capsule** — closest points on two finite segments plus the two radii
 - **2D OBB SAT** — four local face axes with explicit 1D projection evidence
 - **3D OBB SAT** — six face axes plus nine edge-cross axes, including explicit handling of degenerate parallel cross products
 
