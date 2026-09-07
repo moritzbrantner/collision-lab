@@ -17,7 +17,7 @@ test("closest-point primitive lesson switches Rust-backed relations", async ({ p
   await expect(lesson.getByText("Left parameter t")).toBeVisible();
   await expect(lesson.getByText("Right parameter u")).toBeVisible();
 
-  await lesson.getByLabel("Rotate B").fill("80");
+  await lesson.getByLabel("Rotate B").press("End");
   await expect(lesson.getByText("Right parameter u")).toBeVisible();
   await expect(
     lesson.getByText("Closest-point solving and overlap semantics remain in `geometry-kernels`."),
