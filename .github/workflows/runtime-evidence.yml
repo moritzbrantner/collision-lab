@@ -56,10 +56,12 @@ jobs:
           cp candidate/scripts/profile-broad-phase.sh reference/scripts/profile-broad-phase.sh
           cp candidate/profiles/runtime-profiler/broad-phase.json reference/profiles/runtime-profiler/broad-phase.json
           git -C reference add scripts/profile-broad-phase.sh profiles/runtime-profiler/broad-phase.json
-          git -C reference \
-            -c user.name='runtime-profiler' \
-            -c user.email='runtime-profiler@invalid' \
-            commit -m 'chore: attach comparable broad-phase workload'
+          if ! git -C reference diff --cached --quiet; then
+            git -C reference \
+              -c user.name='runtime-profiler' \
+              -c user.email='runtime-profiler@invalid' \
+              commit -m 'chore: attach comparable broad-phase workload'
+          fi
 
       - name: Prime deterministic workload
         run: |
