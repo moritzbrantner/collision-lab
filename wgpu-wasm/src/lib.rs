@@ -110,10 +110,9 @@ pub async fn create_renderer(
     let max_instances = usize::try_from(max_instances.max(1))
         .map_err(|_| JsValue::from_str("renderer instance capacity exceeds usize"))?;
 
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::BROWSER_WEBGPU,
-        ..Default::default()
-    });
+    let mut instance_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+    instance_descriptor.backends = wgpu::Backends::BROWSER_WEBGPU;
+    let instance = wgpu::Instance::new(instance_descriptor);
     let surface: wgpu::Surface<'static> = instance
         .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
         .map_err(|error| JsValue::from_str(&format!("failed to create WebGPU surface: {error}")))?;
