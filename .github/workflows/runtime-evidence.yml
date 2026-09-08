@@ -168,8 +168,15 @@ jobs:
       - name: Capture browser-owned frame metrics
         run: |
           set -euo pipefail
-          (cd candidate && CI=true bash scripts/profile-renderer.sh three) | tee "$RUNNER_TEMP/renderer-three-browser.json"
-          (cd candidate && CI=true bash scripts/profile-renderer.sh wgpu) | tee "$RUNNER_TEMP/renderer-wgpu-browser.json"
+          (cd candidate && CI=true bash scripts/profile-renderer.sh three) | tee "$RUNNER_TEMP/renderer-three-browser.log"
+          grep -E '^\{"done":true,"renderer":"three"' "$RUNNER_TEMP/renderer-three-browser.log" \
+            | tail -n 1 > "$RUNNER_TEMP/renderer-three-browser.json"
+          jq -e '.done == true and .renderer == "three"' "$RUNNER_TEMP/renderer-three-browser.json" >/dev/null
+
+          (cd candidate && CI=true bash scripts/profile-renderer.sh wgpu) | tee "$RUNNER_TEMP/renderer-wgpu-browser.log"
+          grep -E '^\{"done":true,"renderer":"wgpu"' "$RUNNER_TEMP/renderer-wgpu-browser.log" \
+            | tail -n 1 > "$RUNNER_TEMP/renderer-wgpu-browser.json"
+          jq -e '.done == true and .renderer == "wgpu"' "$RUNNER_TEMP/renderer-wgpu-browser.json" >/dev/null
 
       - name: Capture Three.js command evidence
         working-directory: candidate
@@ -225,6 +232,8 @@ jobs:
           path: |
             ${{ runner.temp }}/renderer-three
             ${{ runner.temp }}/renderer-wgpu
+            ${{ runner.temp }}/renderer-three-browser.log
+            ${{ runner.temp }}/renderer-wgpu-browser.log
             ${{ runner.temp }}/renderer-three-browser.json
             ${{ runner.temp }}/renderer-wgpu-browser.json
             ${{ runner.temp }}/renderer-three-summary.txt
