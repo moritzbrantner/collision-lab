@@ -1,0 +1,47 @@
+[project]
+name = "collision-lab"
+repo = "."
+baseline_ref = "main"
+
+[eval]
+work_dir = ".moonlight/evals"
+keep_worktrees = "failed"
+jobs = 1
+target_timeout_ms = 900000
+max_body_capture_bytes = 20000
+
+[[checks]]
+id = "rust-format"
+name = "Rust format"
+command = "cargo fmt --all --check"
+cwd = "."
+timeout_ms = 120000
+ignore_stdout = true
+ignore_stderr = true
+
+[[checks]]
+id = "rust-clippy"
+name = "Rust clippy"
+command = "cargo clippy --all-targets --all-features -- -D warnings"
+cwd = "."
+timeout_ms = 900000
+ignore_stdout = true
+ignore_stderr = true
+
+[[checks]]
+id = "rust-tests"
+name = "Rust tests"
+command = "cargo test --all-features"
+cwd = "."
+timeout_ms = 900000
+ignore_stdout = true
+ignore_stderr = true
+
+[[checks]]
+id = "pair-parity"
+name = "Broad-phase pair parity"
+command = "cargo run --release -- --objects 1000 --cell-size 2.5 --seed 42"
+cwd = "."
+timeout_ms = 900000
+ignore_stdout = true
+ignore_stderr = true
