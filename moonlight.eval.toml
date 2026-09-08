@@ -45,3 +45,12 @@ cwd = "."
 timeout_ms = 900000
 ignore_stdout = true
 ignore_stderr = true
+
+[[checks]]
+id = "browser-wgpu-wasm"
+name = "Browser wgpu WASM compile"
+command = "if [ ! -f wgpu-wasm/Cargo.toml ]; then exit 0; fi; cargo check --manifest-path wgpu-wasm/Cargo.toml --target wasm32-unknown-unknown"
+cwd = "."
+timeout_ms = 900000
+ignore_stdout = true
+ignore_stderr = true
