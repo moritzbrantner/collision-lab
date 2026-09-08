@@ -43,14 +43,30 @@ struct CameraUniform {
 }
 
 const CUBE_VERTICES: [Vertex; 8] = [
-    Vertex { position: [-0.5, -0.5, -0.5] },
-    Vertex { position: [0.5, -0.5, -0.5] },
-    Vertex { position: [0.5, 0.5, -0.5] },
-    Vertex { position: [-0.5, 0.5, -0.5] },
-    Vertex { position: [-0.5, -0.5, 0.5] },
-    Vertex { position: [0.5, -0.5, 0.5] },
-    Vertex { position: [0.5, 0.5, 0.5] },
-    Vertex { position: [-0.5, 0.5, 0.5] },
+    Vertex {
+        position: [-0.5, -0.5, -0.5],
+    },
+    Vertex {
+        position: [0.5, -0.5, -0.5],
+    },
+    Vertex {
+        position: [0.5, 0.5, -0.5],
+    },
+    Vertex {
+        position: [-0.5, 0.5, -0.5],
+    },
+    Vertex {
+        position: [-0.5, -0.5, 0.5],
+    },
+    Vertex {
+        position: [0.5, -0.5, 0.5],
+    },
+    Vertex {
+        position: [0.5, 0.5, 0.5],
+    },
+    Vertex {
+        position: [-0.5, 0.5, 0.5],
+    },
 ];
 
 const CUBE_INDICES: [u16; 36] = [
@@ -108,7 +124,9 @@ pub async fn create_renderer(
             ..Default::default()
         })
         .await
-        .map_err(|error| JsValue::from_str(&format!("failed to request WebGPU adapter: {error}")))?;
+        .map_err(|error| {
+            JsValue::from_str(&format!("failed to request WebGPU adapter: {error}"))
+        })?;
     let (device, queue) = adapter
         .request_device(&wgpu::DeviceDescriptor {
             label: Some("collision-lab browser wgpu device"),
@@ -228,8 +246,7 @@ impl WgpuRenderer {
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
-        (self.depth_texture, self.depth_view) =
-            create_depth_resources(&self.device, width, height);
+        (self.depth_texture, self.depth_view) = create_depth_resources(&self.device, width, height);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -253,10 +270,11 @@ impl WgpuRenderer {
         }
 
         self.instances.clear();
-        self.instances.extend(packed_instances.chunks_exact(6).map(|values| InstanceRaw {
-            center: [values[0], values[1], values[2]],
-            scale: [values[3], values[4], values[5]],
-        }));
+        self.instances
+            .extend(packed_instances.chunks_exact(6).map(|values| InstanceRaw {
+                center: [values[0], values[1], values[2]],
+                scale: [values[3], values[4], values[5]],
+            }));
         if !self.instances.is_empty() {
             self.queue.write_buffer(
                 &self.instance_buffer,
