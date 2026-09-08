@@ -330,11 +330,12 @@ export function ZombieArena3dScenario() {
     const onFullscreenChange = () => {
       const arena = arenaRef.current;
       if (!arena) return;
-      if (document.fullscreenElement !== arena && document.pointerLockElement !== arena) {
-        clearTransientInput();
-        setPaused(true);
-        setMenuOpen(true);
-      }
+      if (document.fullscreenElement === arena) return;
+
+      clearTransientInput();
+      setPaused(true);
+      setMenuOpen(true);
+      if (document.pointerLockElement === arena) document.exitPointerLock();
     };
 
     document.addEventListener("pointerlockchange", onPointerLockChange);
