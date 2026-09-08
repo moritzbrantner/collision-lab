@@ -45,6 +45,7 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal --component rustfmt --component clippy
           rustup default stable
+          rustup target add wasm32-unknown-unknown
 
       - name: Install runtime-profiler
         run: cargo install --git https://github.com/moritzbrantner/runtime-profiler --rev "$RUNTIME_PROFILER_REV" --locked
@@ -125,4 +126,105 @@ jobs:
             ${{ runner.temp }}/candidate-broad-phase
             ${{ runner.temp }}/runtime-broad-phase.json
             ${{ runner.temp }}/moonlight.md
+          if-no-files-found: warn
+
+  renderer-evidence:
+    name: Three.js versus WASM wgpu runtime evidence
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          fetch-depth: 0
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add wasm32-unknown-unknown
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Install runtime-profiler
+        run: cargo install --git https://github.com/moritzbrantner/runtime-profiler --rev "$RUNTIME_PROFILER_REV" --locked
+
+      - name: Build browser experiment
+        working-directory: candidate/web
+        run: |
+          bun install
+          bun run wasm
+          GITHUB_ACTIONS=false bun run build
+          bunx playwright install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers xvfb xauth
+
+      - name: Capture browser-owned frame metrics
+        run: |
+          set -euo pipefail
+          (cd candidate && CI=true bash scripts/profile-renderer.sh three) | tee "$RUNNER_TEMP/renderer-three-browser.json"
+          (cd candidate && CI=true bash scripts/profile-renderer.sh wgpu) | tee "$RUNNER_TEMP/renderer-wgpu-browser.json"
+
+      - name: Capture Three.js command evidence
+        working-directory: candidate
+        run: |
+          runtime-profiler capture \
+            --scenario profiles/runtime-profiler/renderer-three.json \
+            --output "$RUNNER_TEMP/renderer-three"
+          runtime-profiler validate --bundle "$RUNNER_TEMP/renderer-three"
+          runtime-profiler summarize --bundle "$RUNNER_TEMP/renderer-three" \
+            | tee "$RUNNER_TEMP/renderer-three-summary.txt"
+
+      - name: Capture WASM wgpu command evidence
+        working-directory: candidate
+        run: |
+          runtime-profiler capture \
+            --scenario profiles/runtime-profiler/renderer-wgpu.json \
+            --output "$RUNNER_TEMP/renderer-wgpu"
+          runtime-profiler validate --bundle "$RUNNER_TEMP/renderer-wgpu"
+          runtime-profiler summarize --bundle "$RUNNER_TEMP/renderer-wgpu" \
+            | tee "$RUNNER_TEMP/renderer-wgpu-summary.txt"
+
+      - name: Publish side-by-side renderer evidence
+        run: |
+          {
+            echo '### Browser renderer A/B evidence'
+            echo
+            echo '> Distinct renderer scenarios are shown side by side. They are intentionally not passed to `runtime-profiler score`, which requires semantically identical reference/candidate scenarios.'
+            echo
+            echo '#### Three.js / WebGL browser metrics'
+            echo '```json'
+            jq . "$RUNNER_TEMP/renderer-three-browser.json"
+            echo '```'
+            echo '```text'
+            cat "$RUNNER_TEMP/renderer-three-summary.txt"
+            echo '```'
+            echo
+            echo '#### Rust/WASM wgpu / BrowserWebGPU browser metrics'
+            echo '```json'
+            jq . "$RUNNER_TEMP/renderer-wgpu-browser.json"
+            echo '```'
+            echo '```text'
+            cat "$RUNNER_TEMP/renderer-wgpu-summary.txt"
+            echo '```'
+            echo
+            echo 'CI uses Chromium with software GPU backends for repeatability; these numbers are a regression canary, not a hardware-GPU performance claim.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload renderer evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-renderer-runtime-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/renderer-three
+            ${{ runner.temp }}/renderer-wgpu
+            ${{ runner.temp }}/renderer-three-browser.json
+            ${{ runner.temp }}/renderer-wgpu-browser.json
+            ${{ runner.temp }}/renderer-three-summary.txt
+            ${{ runner.temp }}/renderer-wgpu-summary.txt
           if-no-files-found: warn
