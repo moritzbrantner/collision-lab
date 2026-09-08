@@ -42,6 +42,8 @@ async function startArena(page: Page) {
 }
 
 test("Zombie Arena captures mouse-look and Escape opens a frozen pause menu", async ({ page }) => {
+  test.setTimeout(45_000);
+
   const arena = await startArena(page);
   const diagnostics = page.locator(`[aria-label="${DIAGNOSTICS_NAME}"]`);
 

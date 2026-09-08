@@ -1,0 +1,17 @@
+{
+  "schema_version": "runtime-profiler/scenario/v1",
+  "id": "collision-lab-renderer-wgpu",
+  "target": {
+    "type": "command",
+    "program": "bash",
+    "args": ["scripts/profile-renderer.sh", "wgpu"],
+    "working_directory": "../..",
+    "inherit_env": ["CI", "HOME", "PLAYWRIGHT_BROWSERS_PATH", "XDG_CACHE_HOME"]
+  },
+  "run": {
+    "warmup_iterations": 1,
+    "measurement_iterations": 5,
+    "timeout_seconds": 90
+  },
+  "collectors": ["process"]
+}

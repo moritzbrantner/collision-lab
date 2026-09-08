@@ -18,12 +18,15 @@ jobs:
           targets: wasm32-unknown-unknown
       - run: cargo fmt --all --check
       - run: cargo fmt --manifest-path wasm/Cargo.toml -- --check
+      - run: cargo fmt --manifest-path wgpu-wasm/Cargo.toml -- --check
       - run: cargo fmt --manifest-path zombie-arena-wasm/Cargo.toml -- --check
       - run: cargo fmt --manifest-path zombie-arena-3d-wasm/Cargo.toml -- --check
       - run: cargo fmt --manifest-path zombie-arena-character-wasm/Cargo.toml -- --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --all-features
       - run: cargo check --manifest-path wasm/Cargo.toml --target wasm32-unknown-unknown
+      - run: cargo clippy --manifest-path wgpu-wasm/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo check --manifest-path wgpu-wasm/Cargo.toml --target wasm32-unknown-unknown
       - run: cargo clippy --manifest-path zombie-arena-wasm/Cargo.toml --all-targets --all-features -- -D warnings
       - run: cargo test --manifest-path zombie-arena-wasm/Cargo.toml --all-features
       - run: cargo check --manifest-path zombie-arena-wasm/Cargo.toml --target wasm32-unknown-unknown

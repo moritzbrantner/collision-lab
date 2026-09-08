@@ -6,6 +6,7 @@ on:
     paths:
       - "web/**"
       - "wasm/**"
+      - "wgpu-wasm/**"
       - "zombie-arena-wasm/**"
       - "zombie-arena-3d-wasm/**"
       - "src/**"
@@ -15,6 +16,7 @@ on:
     paths:
       - "web/**"
       - "wasm/**"
+      - "wgpu-wasm/**"
       - "zombie-arena-wasm/**"
       - "zombie-arena-3d-wasm/**"
       - "src/**"
