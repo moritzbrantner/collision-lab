@@ -81,6 +81,7 @@ export function RendererComparison() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const renderCanvas: HTMLCanvasElement = canvas;
 
     let active = true;
     let animationFrame = 0;
@@ -111,8 +112,8 @@ export function RendererComparison() {
         const packed = packInstances(initialSnapshot);
 
         adapter = rendererKind === "three"
-          ? createThreeRenderer(canvas, objects)
-          : await createWgpuRenderer(canvas, objects);
+          ? createThreeRenderer(renderCanvas, objects)
+          : await createWgpuRenderer(renderCanvas, objects);
         if (!active) {
           adapter.dispose();
           adapter = null;
