@@ -1,6 +1,6 @@
 use geometry_kernels::{
     gjk::GjkStatus,
-    gjk_trace::gjk_intersection_trace,
+    planar::gjk_intersection_trace_planar_xy,
     support::{ConvexHull3, MinkowskiSupportPoint},
 };
 use serde_json::{Value, json};
@@ -12,7 +12,7 @@ pub fn convex_gjk_trace_json(left_json: &str, right_json: &str) -> Result<String
     let right = parse_polygon(right_json, "right")?;
     let left_hull = ConvexHull3::new(&left);
     let right_hull = ConvexHull3::new(&right);
-    let trace = gjk_intersection_trace(&left_hull, &right_hull);
+    let trace = gjk_intersection_trace_planar_xy(&left_hull, &right_hull);
 
     let steps: Vec<_> = trace
         .steps
