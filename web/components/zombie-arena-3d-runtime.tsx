@@ -27,14 +27,22 @@ export function ZombieArena3dRuntime() {
   }, []);
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && document.pointerLockElement) {
-        event.preventDefault();
-        document.exitPointerLock();
-      }
+    const releasePointerLock = () => {
+      if (document.pointerLockElement) document.exitPointerLock();
     };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") releasePointerLock();
+    };
+    const onFullscreenChange = () => {
+      if (!document.fullscreenElement) releasePointerLock();
+    };
+
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+    };
   }, []);
 
   if (error) {

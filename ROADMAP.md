@@ -10,7 +10,7 @@ Collision Lab is an interactive laboratory for learning, comparing, testing, and
 4. **Explain before scaling.** An algorithm should be understandable with a handful of objects before it is shown against hundreds or thousands.
 5. **Tracing is optional.** Debug and teaching APIs may allocate, but normal kernel consumers should not pay that cost.
 6. **Prefer reusable kernels.** General algorithms/data structures belong in `rust-kernels`; scenarios, semantic interaction policy, experiments, analysis, and teaching UX belong in `collision-lab`.
-7. **Visual helpers represent real state.** Grid cells, sweep planes, BVH nodes, fat AABBs, octree subdivisions, and similar helpers come from the actual Rust algorithm state rather than decorative reimplementations.
+7. **Visual helpers represent real state.** Grid cells, sweep planes, BVH nodes, fat AABBs, octree subdivisions, closest features, and similar helpers come from the actual Rust algorithm state rather than decorative reimplementations.
 8. **Algorithm and hardware are different axes.** A faster GPU implementation does not replace algorithmic comparison; Compute mode should make hardware parallelism and algorithmic pruning independently measurable.
 
 ## Four complementary modes
@@ -27,8 +27,12 @@ Implemented lessons:
 4. ✅ **Static BVH** — real node-pair traversal with `descend`, `pruned`, and `leaf-test`; each prune quantifies how many descendant object pairs disappear.
 5. ✅ **Dynamic AABB tree** — exact AABB versus fat AABB, contained motion, `escaped → reinserted`, changed tree nodes, and retained-tree pair parity.
 6. ✅ **Octree** — the real eight 3D children projected as two 2×2 slices: four XY quadrants in the lower-Z half and four in the upper-Z half.
+7. ✅ **Analytical narrow phase** — sphere–sphere and AABB–AABB exact relations exposed from `geometry-kernels`.
+8. ✅ **2D OBB SAT** — four candidate axes, projected radii, signed overlap, and the first separating axis.
+9. ✅ **3D OBB SAT** — all 15 candidate axes, including inactive parallel edge-cross axes.
+10. ✅ **Closest-point primitive pairs** — sphere–AABB, sphere–capsule, and capsule–capsule using Rust-returned closest features, segment parameters, distance, and signed separation.
 
-Explanation mode should keep using purpose-built deterministic scenes rather than anonymous random seeds where clarity benefits from it. Next educational work should emphasize named edge-case presets and later narrow-phase geometry.
+A separate `/convex/` page already prototypes support mappings, GJK, and EPA as an inspectable browser teaching model. Its collision decisions are not yet the authoritative shared Rust path. The next educational ownership slice should replace that prototype authority with the reusable Rust support/GJK foundation while preserving the visual walkthrough.
 
 ### 2. Experiment
 
@@ -57,14 +61,15 @@ Implemented baseline:
 - Rust/WASM work counters rather than browser rendering timing;
 - object counts `50, 100, 250, 500, 1000`;
 - uniform and clustered distributions;
-- world volume grows with object count to keep average density roughly stable;
+- named deterministic workloads including sparse, bad-grid, and everything-overlapping cases;
+- world volume grows with object count to keep average density roughly stable where the workload calls for it;
 - possible-pair counts, exact AABB tests, and percent avoided;
 - log-scale scaling chart and exact table;
 - Naive, Uniform Grid, Octree, Sweep-and-Prune, Static BVH, and Dynamic AABB Tree on the same scene snapshot.
 
 Next Analysis additions:
 
-- named adversarial workloads;
+- more adversarial workloads, especially fast movers and temporally coherent scenes;
 - structure metrics: tree height, node count, memberships, active-set size, reinsertions;
 - parameter sweeps: grid cell size, octree capacity/depth, dynamic-tree fat margin;
 - automatic crossover detection;
@@ -78,7 +83,9 @@ A separate chapter for **where the same work executes**.
 Implemented baseline:
 
 - same deterministic naive all-pairs AABB workload on Rust/WASM and WebGPU;
+- Uniform Grid on Rust/WASM and WebGPU so algorithmic pruning can be separated from hardware parallelism;
 - exact pair-set parity through compact pair bitsets;
+- grid work-parity checks for occupied cells and unique exact AABB tests;
 - object counts `100, 250, 500, 1000, 2500, 5000`;
 - median CPU/WASM and GPU end-to-end measurements;
 - GPU preparation/upload, submit→readback, and GPU-pass timing when timestamp queries are available;
@@ -86,8 +93,7 @@ Implemented baseline:
 
 Next Compute work:
 
-- WebGPU Uniform Grid so hardware parallelism can be separated from algorithmic pruning;
-- compare CPU optimized broad phases against GPU naive and GPU optimized versions;
+- compare additional CPU optimized broad phases against GPU naive and GPU-appropriate optimized versions;
 - characterize transfer/readback overhead and GPU crossover points;
 - later consider WebGPU for narrow-phase batches where parallel structure is a good fit.
 
@@ -102,28 +108,35 @@ Next Compute work:
 - `bvh-trace-kernels` companion trace with node snapshots, traversal decisions, exact leaf-test parity, and the accounting invariant `pruned potential pairs + leaf tests = all possible pairs`.
 - Dynamic AABB Tree with fat AABBs, balancing, retained updates, and before/after structural traces.
 - Octree with configurable depth/capacity, candidate deduplication, deterministic node snapshots, and eight-way helper visualization.
+- Named deterministic workloads for baseline-uniform, clustered, sparse, bad-grid, and everything-overlapping behavior.
 
 ### Next broad-phase work
 
-1. **Named deterministic presets** for teaching and analysis: sparse, clustered, bad-grid, everything-overlapping, fast-movers, and other meaningful cases.
-2. **Multi-axis / temporally coherent Sweep-and-Prune** experiments.
-3. **Richer structural analysis** across current algorithms before adding many near-duplicates.
+1. **Multi-axis / temporally coherent Sweep-and-Prune** experiments.
+2. **Richer structural analysis** across current algorithms before adding many near-duplicates.
+3. **Fast-mover and temporal presets** that make retained-structure behavior measurable over multiple frames.
 4. Add another spatial structure only when it teaches a genuinely different tradeoff—possible candidates include a loose octree or k-d/static partitioning.
 
 ## Narrow-phase roadmap
 
-Broad-phase teaching coverage is now coherent enough to begin the next chapter deliberately.
+The direct primitive chapter is now coherent enough to move from special-case formulas toward a general convex pipeline.
 
-Recommended order:
+Current status:
 
-1. **Analytical primitives** — sphere–sphere and AABB–AABB.
-2. **OBB + Separating Axis Theorem (SAT)**.
-3. **Capsules and common primitive pairs**.
-4. **Convex support mappings**.
-5. **GJK intersection testing**.
-6. **EPA penetration depth and collision normal**.
-7. **Contact manifolds**.
-8. **Triangle/mesh queries accelerated by BVHs**.
+1. ✅ **Analytical primitives** — sphere–sphere and AABB–AABB.
+2. ✅ **OBB + Separating Axis Theorem (SAT)** — focused 2D lesson and full 15-axis 3D relation.
+3. ✅ **Capsules and common primitive pairs** — sphere–AABB, sphere–capsule, and capsule–capsule via reusable closest-point kernels.
+4. 🟡 **Convex support mappings + GJK** — a browser teaching prototype exists, and `rust-kernels::geometry-kernels` now provides reusable support-map and deterministic GJK foundations; Collision Lab still needs to make that Rust path authoritative for the lesson and expose trace-quality simplex evidence.
+5. 🟡 **EPA penetration depth and collision normal** — the browser teaching prototype demonstrates the idea, but an authoritative reusable Rust result/trace is still needed before Collision Lab should treat it as implemented geometry.
+6. ⬜ **Contact manifolds**.
+7. ⬜ **Triangle/mesh queries accelerated by BVHs**.
+
+Immediate implementation sequence:
+
+1. **Rust-owned GJK lesson** — consume the shared support-map/GJK kernel through WASM, expose support queries and simplex evolution, and differential-test collision decisions against appropriate primitive/SAT oracles.
+2. **Rust-owned EPA** — add penetration depth/normal evidence on top of an intersecting GJK simplex, with deterministic termination/failure semantics.
+3. **Contact generation** — turn a collision relation into stable contact points/manifolds before introducing any rigid-body response.
+4. **Mesh queries** — combine triangle tests with BVH traversal without turning the broad phase and mesh acceleration structure into one undifferentiated system.
 
 Each major narrow-phase topic should get the relevant views:
 
@@ -132,7 +145,7 @@ Each major narrow-phase topic should get the relevant views:
 - Analysis: assumptions, operation counts, failure cases, and measured tradeoffs;
 - Compute: only when CPU/GPU placement is a meaningful question.
 
-GJK deserves an especially detailed visual treatment of the Minkowski difference and simplex evolution: point → line → triangle → tetrahedron → origin enclosed.
+GJK deserves an especially detailed visual treatment of the Minkowski difference and simplex evolution: point → line → triangle → tetrahedron → origin enclosed. The frontend may materialize/project teaching geometry, but support choices, simplex decisions, termination status, and intersection truth should come from Rust.
 
 ## Continuous collision detection
 
@@ -176,9 +189,9 @@ Possible later topics: mass/inverse mass, impulses, restitution, friction, const
 - Shareable URLs encoding mode + algorithm + preset + step.
 - Side-by-side naive vs optimized views.
 - Small equations and counters that update with object count.
-- Click inspection for objects, candidates, helper nodes, and rejection reasons.
+- Click inspection for objects, candidates, helper nodes, closest features, and rejection reasons.
 - Presets named after the concept they teach, not arbitrary seeds.
-- Glossary: AABB, broad phase, narrow phase, candidate pair, fat AABB, octree, BVH, support mapping, Minkowski difference, contact manifold, etc.
+- Glossary: AABB, broad phase, narrow phase, candidate pair, fat AABB, octree, BVH, capsule, support mapping, Minkowski difference, contact manifold, etc.
 - Keyboard stepping for traces.
 - Optional “why was this pair rejected?” annotations.
 
@@ -201,7 +214,9 @@ Collision Lab should continue dogfooding reusable components rather than growing
 - sweep structures;
 - BVHs and dynamic AABB trees;
 - rays/intersection primitives;
-- SAT/GJK/EPA building blocks;
+- closest-point and capsule primitives;
+- SAT/support-map/GJK building blocks;
+- EPA/contact-generation building blocks as they mature;
 - nearest-neighbor/spatial-query helpers;
 - deterministic trace/debug representations when broadly useful.
 
