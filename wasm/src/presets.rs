@@ -1,6 +1,9 @@
 #[cfg(not(test))]
 #[path = "geometry.rs"]
 mod geometry;
+#[cfg(not(test))]
+#[path = "gjk_trace.rs"]
+mod gjk_trace;
 
 use collision_lab::{Config, InteractionConfig, MotionConfig, Scenario};
 
