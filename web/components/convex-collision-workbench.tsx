@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
-import { convex_gjk_trace_json } from "../lib/wasm-pkg/collision_wasm";
+import initWasm, { convex_gjk_trace_json } from "../lib/wasm-pkg/collision_wasm";
 
 type Vec2 = { x: number; y: number };
 type Polygon = Vec2[];
@@ -40,6 +40,15 @@ const SCALE = 96;
 const ORIGIN_X = 360;
 const ORIGIN_Y = 235;
 
+const EMPTY_TRACE: GjkTrace = {
+  status: "iteration-limit",
+  intersection: null,
+  iterations: 0,
+  simplex: [],
+  searchDirection: [1, 0, 0],
+  steps: [],
+};
+
 const SOURCE_A = polarShape(
   [1.0, 1.06, 0.92, 1.12, 0.98, 1.04, 0.9, 1.08, 1.02, 0.94, 1.1, 0.96, 1.04, 0.91, 1.08, 0.98],
   1.18,
@@ -60,6 +69,22 @@ export function ConvexCollisionWorkbench() {
   const [offsetY, setOffsetY] = useState(0.12);
   const [rotationDegrees, setRotationDegrees] = useState(-18);
   const [stepIndex, setStepIndex] = useState(0);
+  const [wasmReady, setWasmReady] = useState(false);
+  const [wasmError, setWasmError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void initWasm()
+      .then(() => {
+        if (!cancelled) setWasmReady(true);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setWasmError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const model = useMemo(() => {
     const exactA = convexHull(SOURCE_A);
@@ -70,20 +95,20 @@ export function ConvexCollisionWorkbench() {
     const exactWorldB = transformPolygon(exactB, { x: offsetX, y: offsetY }, degreesToRadians(rotationDegrees));
     const worldA = transformPolygon(proxyA, { x: -1.25, y: 0 }, 0);
     const worldB = transformPolygon(proxyB, { x: offsetX, y: offsetY }, degreesToRadians(rotationDegrees));
-    const trace = readRustTrace(worldA, worldB);
+    const trace = wasmReady ? readRustTrace(worldA, worldB) : EMPTY_TRACE;
     const minkowski = convexHull(worldA.flatMap((left) => worldB.map((right) => subtract(left, right))));
 
     return { exactWorldA, exactWorldB, worldA, worldB, trace, minkowski };
-  }, [offsetX, offsetY, rotationDegrees, samples]);
+  }, [offsetX, offsetY, rotationDegrees, samples, wasmReady]);
 
   useEffect(() => {
     setStepIndex(0);
-  }, [offsetX, offsetY, rotationDegrees, samples]);
+  }, [offsetX, offsetY, rotationDegrees, samples, wasmReady]);
 
   const activeStepIndex = Math.min(stepIndex, Math.max(0, model.trace.steps.length - 1));
   const activeStep = model.trace.steps[activeStepIndex] ?? null;
-  const collides = model.trace.intersection === true;
-  const separated = model.trace.intersection === false;
+  const collides = wasmReady && model.trace.intersection === true;
+  const separated = wasmReady && model.trace.intersection === false;
   const supportA = activeStep ? vec2(activeStep.support.left) : null;
   const supportB = activeStep ? vec2(activeStep.support.right) : null;
   const direction = activeStep ? vec2(activeStep.queryDirection) : { x: 1, y: 0 };
@@ -99,7 +124,7 @@ export function ConvexCollisionWorkbench() {
               React supplies the convex proxy vertices and projects the returned evidence. Support witnesses, retained simplexes, search directions, termination status, and intersection truth come from <span className="font-mono text-zinc-400">geometry-kernels</span> through WASM.
             </p>
           </div>
-          <DecisionBadge trace={model.trace} />
+          <DecisionBadge trace={model.trace} ready={wasmReady} error={wasmError} />
         </div>
       </div>
 
@@ -160,19 +185,19 @@ export function ConvexCollisionWorkbench() {
 
           <div className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900/45 p-4">
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">Rust decision</p>
-            <p className="mt-2 text-sm leading-6 text-zinc-300">{describeStep(activeStep)}</p>
+            <p className="mt-2 text-sm leading-6 text-zinc-300">{wasmError ? `WASM initialization failed: ${wasmError}` : wasmReady ? describeStep(activeStep) : "Initializing the Rust geometry kernel in the browser…"}</p>
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <Metric label="query d.x" value={formatNumber(direction.x)} />
-            <Metric label="query d.y" value={formatNumber(direction.y)} />
-            <Metric label="support x" value={formatNumber(activeStep?.support.point[0] ?? 0)} />
-            <Metric label="support y" value={formatNumber(activeStep?.support.point[1] ?? 0)} />
+            <Metric label="query d.x" value={wasmReady ? formatNumber(direction.x) : "—"} />
+            <Metric label="query d.y" value={wasmReady ? formatNumber(direction.y) : "—"} />
+            <Metric label="support x" value={wasmReady ? formatNumber(activeStep?.support.point[0] ?? 0) : "—"} />
+            <Metric label="support y" value={wasmReady ? formatNumber(activeStep?.support.point[1] ?? 0) : "—"} />
           </div>
 
           <div className="mt-5 flex gap-2">
-            <button type="button" onClick={() => setStepIndex((value) => Math.max(0, value - 1))} disabled={activeStepIndex === 0} className="flex-1 rounded-xl border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-300 transition hover:border-zinc-500 disabled:opacity-30">← Previous</button>
-            <button type="button" onClick={() => setStepIndex((value) => Math.min(model.trace.steps.length - 1, value + 1))} disabled={activeStepIndex >= model.trace.steps.length - 1} className="flex-1 rounded-xl border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-300 transition hover:border-zinc-500 disabled:opacity-30">Next →</button>
+            <button type="button" onClick={() => setStepIndex((value) => Math.max(0, value - 1))} disabled={!wasmReady || activeStepIndex === 0} className="flex-1 rounded-xl border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-300 transition hover:border-zinc-500 disabled:opacity-30">← Previous</button>
+            <button type="button" onClick={() => setStepIndex((value) => Math.min(model.trace.steps.length - 1, value + 1))} disabled={!wasmReady || activeStepIndex >= model.trace.steps.length - 1} className="flex-1 rounded-xl border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-300 transition hover:border-zinc-500 disabled:opacity-30">Next →</button>
           </div>
 
           <div className="mt-6 border-t border-zinc-800 pt-5">
@@ -185,14 +210,14 @@ export function ConvexCollisionWorkbench() {
       </div>
 
       <div className="grid border-t border-zinc-800 lg:grid-cols-2">
-        <MinkowskiPanel polygon={model.minkowski} step={activeStep} trace={model.trace} />
-        <NextStagePanel trace={model.trace} />
+        <MinkowskiPanel polygon={model.minkowski} step={activeStep} trace={model.trace} ready={wasmReady} />
+        <NextStagePanel trace={model.trace} ready={wasmReady} />
       </div>
     </section>
   );
 }
 
-function MinkowskiPanel({ polygon, step, trace }: { polygon: Polygon; step: GjkTraceStep | null; trace: GjkTrace }) {
+function MinkowskiPanel({ polygon, step, trace, ready }: { polygon: Polygon; step: GjkTraceStep | null; trace: GjkTrace; ready: boolean }) {
   const width = 520;
   const height = 310;
   const scale = 58;
@@ -210,7 +235,7 @@ function MinkowskiPanel({ polygon, step, trace }: { polygon: Polygon; step: GjkT
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Configuration space</p>
           <h3 className="mt-2 text-xl font-semibold text-zinc-100">Minkowski difference A − B</h3>
         </div>
-        <StatusPill trace={trace} />
+        <StatusPill trace={trace} ready={ready} />
       </div>
       <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/25">
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="Minkowski difference and Rust GJK simplex">
@@ -220,7 +245,7 @@ function MinkowskiPanel({ polygon, step, trace }: { polygon: Polygon; step: GjkT
           <polygon points={points} fill="#18181b" stroke="#71717a" strokeWidth="2" />
           {simplex.length > 1 && <polyline points={simplex.map((point) => `${mapX(point.x)},${mapY(point.y)}`).join(" ")} fill={simplex.length >= 3 ? "#78350f" : "none"} fillOpacity="0.45" stroke="#fbbf24" strokeWidth="3" />}
           {simplex.map((point, index) => <circle key={`${point.x}-${point.y}-${index}`} cx={mapX(point.x)} cy={mapY(point.y)} r="6" fill="#fbbf24" />)}
-          <circle cx={ox} cy={oy} r="7" fill={trace.intersection === true ? "#fb7185" : trace.intersection === false ? "#34d399" : "#fbbf24"} stroke="#09090b" strokeWidth="3" />
+          <circle cx={ox} cy={oy} r="7" fill={!ready ? "#fbbf24" : trace.intersection === true ? "#fb7185" : trace.intersection === false ? "#34d399" : "#fbbf24"} stroke="#09090b" strokeWidth="3" />
           <text x={ox + 10} y={oy - 10} fill="#a1a1aa" fontSize="12">origin</text>
         </svg>
       </div>
@@ -231,7 +256,7 @@ function MinkowskiPanel({ polygon, step, trace }: { polygon: Polygon; step: GjkT
   );
 }
 
-function NextStagePanel({ trace }: { trace: GjkTrace }) {
+function NextStagePanel({ trace, ready }: { trace: GjkTrace; ready: boolean }) {
   return (
     <div className="p-5 sm:p-6">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Next narrow-phase slice</p>
@@ -240,16 +265,34 @@ function NextStagePanel({ trace }: { trace: GjkTrace }) {
         GJK now ends at a Rust-owned status and simplex. The next roadmap step is a reusable Rust EPA result/trace for penetration depth and normal, followed by stable contact generation. The UI should remain a projection layer.
       </p>
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <Metric label="terminal status" value={trace.status} />
-        <Metric label="iterations" value={String(trace.iterations)} />
-        <Metric label="final simplex" value={`${trace.simplex.length} points`} />
-        <Metric label="truth" value={trace.intersection === null ? "indeterminate" : trace.intersection ? "intersecting" : "separated"} />
+        <Metric label="terminal status" value={ready ? trace.status : "initializing"} />
+        <Metric label="iterations" value={ready ? String(trace.iterations) : "—"} />
+        <Metric label="final simplex" value={ready ? `${trace.simplex.length} points` : "—"} />
+        <Metric label="truth" value={ready ? (trace.intersection === null ? "indeterminate" : trace.intersection ? "intersecting" : "separated") : "—"} />
       </div>
     </div>
   );
 }
 
-function DecisionBadge({ trace }: { trace: GjkTrace }) {
+function DecisionBadge({ trace, ready, error }: { trace: GjkTrace; ready: boolean; error: string | null }) {
+  if (error) {
+    return (
+      <div className="rounded-2xl border border-rose-900/70 bg-rose-950/35 px-4 py-3 text-rose-200">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-70">narrow-phase result</div>
+        <div className="mt-1 text-lg font-semibold">Unavailable</div>
+        <div className="mt-1 font-mono text-xs opacity-60">WASM initialization failed</div>
+      </div>
+    );
+  }
+  if (!ready) {
+    return (
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/35 px-4 py-3 text-zinc-300">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-70">narrow-phase result</div>
+        <div className="mt-1 text-lg font-semibold">Initializing</div>
+        <div className="mt-1 font-mono text-xs opacity-60">loading Rust geometry kernel</div>
+      </div>
+    );
+  }
   const collides = trace.intersection === true;
   const separated = trace.intersection === false;
   const classes = collides
@@ -266,7 +309,8 @@ function DecisionBadge({ trace }: { trace: GjkTrace }) {
   );
 }
 
-function StatusPill({ trace }: { trace: GjkTrace }) {
+function StatusPill({ trace, ready }: { trace: GjkTrace; ready: boolean }) {
+  if (!ready) return <span className="rounded-full border border-zinc-800 px-3 py-1 text-xs font-semibold text-zinc-400">initializing Rust</span>;
   const label = trace.intersection === true ? "origin enclosed" : trace.intersection === false ? "origin excluded" : trace.status;
   return <span className="rounded-full border border-zinc-800 px-3 py-1 text-xs font-semibold text-zinc-400">{label}</span>;
 }
