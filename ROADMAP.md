@@ -31,8 +31,9 @@ Implemented lessons:
 8. ✅ **2D OBB SAT** — four candidate axes, projected radii, signed overlap, and the first separating axis.
 9. ✅ **3D OBB SAT** — all 15 candidate axes, including inactive parallel edge-cross axes.
 10. ✅ **Closest-point primitive pairs** — sphere–AABB, sphere–capsule, and capsule–capsule using Rust-returned closest features, segment parameters, distance, and signed separation.
+11. ✅ **Convex support mappings + GJK** — the `/convex/` lesson now consumes Rust-owned support witnesses, retained simplexes, search directions, termination status, and intersection truth through WASM; the frontend only prepares/projections teaching geometry.
 
-A separate `/convex/` page already prototypes support mappings, GJK, and EPA as an inspectable browser teaching model. Its collision decisions are not yet the authoritative shared Rust path. The next educational ownership slice should replace that prototype authority with the reusable Rust support/GJK foundation while preserving the visual walkthrough.
+The `/convex/` page may materialize a full Minkowski boundary as a teaching reference, but GJK does not consume that browser geometry. The next educational ownership slice is Rust-owned EPA penetration evidence on top of the intersecting GJK simplex.
 
 ### 2. Experiment
 
@@ -126,17 +127,16 @@ Current status:
 1. ✅ **Analytical primitives** — sphere–sphere and AABB–AABB.
 2. ✅ **OBB + Separating Axis Theorem (SAT)** — focused 2D lesson and full 15-axis 3D relation.
 3. ✅ **Capsules and common primitive pairs** — sphere–AABB, sphere–capsule, and capsule–capsule via reusable closest-point kernels.
-4. 🟡 **Convex support mappings + GJK** — a browser teaching prototype exists, and `rust-kernels::geometry-kernels` now provides reusable support-map and deterministic GJK foundations; Collision Lab still needs to make that Rust path authoritative for the lesson and expose trace-quality simplex evidence.
-5. 🟡 **EPA penetration depth and collision normal** — the browser teaching prototype demonstrates the idea, but an authoritative reusable Rust result/trace is still needed before Collision Lab should treat it as implemented geometry.
+4. ✅ **Convex support mappings + GJK** — `rust-kernels::geometry-kernels` owns support choices, simplex evolution, termination, and intersection truth; Collision Lab consumes an optional deterministic trace through WASM and projects the evidence into the convex lesson.
+5. 🟡 **EPA penetration depth and collision normal** — the earlier browser teaching prototype demonstrated the idea, but an authoritative reusable Rust result/trace is still needed before Collision Lab should treat penetration data as implemented geometry.
 6. ⬜ **Contact manifolds**.
 7. ⬜ **Triangle/mesh queries accelerated by BVHs**.
 
 Immediate implementation sequence:
 
-1. **Rust-owned GJK lesson** — consume the shared support-map/GJK kernel through WASM, expose support queries and simplex evolution, and differential-test collision decisions against appropriate primitive/SAT oracles.
-2. **Rust-owned EPA** — add penetration depth/normal evidence on top of an intersecting GJK simplex, with deterministic termination/failure semantics.
-3. **Contact generation** — turn a collision relation into stable contact points/manifolds before introducing any rigid-body response.
-4. **Mesh queries** — combine triangle tests with BVH traversal without turning the broad phase and mesh acceleration structure into one undifferentiated system.
+1. **Rust-owned EPA** — add penetration depth/normal evidence on top of an intersecting GJK simplex, with deterministic convergence, termination, and failure semantics.
+2. **Contact generation** — turn a collision relation into stable contact points/manifolds before introducing any rigid-body response.
+3. **Mesh queries** — combine triangle tests with BVH traversal without turning the broad phase and mesh acceleration structure into one undifferentiated system.
 
 Each major narrow-phase topic should get the relevant views:
 
@@ -145,7 +145,7 @@ Each major narrow-phase topic should get the relevant views:
 - Analysis: assumptions, operation counts, failure cases, and measured tradeoffs;
 - Compute: only when CPU/GPU placement is a meaningful question.
 
-GJK deserves an especially detailed visual treatment of the Minkowski difference and simplex evolution: point → line → triangle → tetrahedron → origin enclosed. The frontend may materialize/project teaching geometry, but support choices, simplex decisions, termination status, and intersection truth should come from Rust.
+GJK now has the detailed visual treatment of support queries and simplex evolution without moving collision authority into the frontend. EPA should follow the same pattern: optional trace-quality evidence for teaching, while the normal reusable kernel path remains the source of truth.
 
 ## Continuous collision detection
 
@@ -215,7 +215,7 @@ Collision Lab should continue dogfooding reusable components rather than growing
 - BVHs and dynamic AABB trees;
 - rays/intersection primitives;
 - closest-point and capsule primitives;
-- SAT/support-map/GJK building blocks;
+- SAT/support-map/GJK building blocks and optional deterministic GJK traces;
 - EPA/contact-generation building blocks as they mature;
 - nearest-neighbor/spatial-query helpers;
 - deterministic trace/debug representations when broadly useful.
