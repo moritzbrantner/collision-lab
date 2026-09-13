@@ -4,8 +4,8 @@ import Link from "next/link";
 import { ConvexCollisionWorkbench } from "../../components/convex-collision-workbench";
 
 export const metadata: Metadata = {
-  title: "Convex collision: GJK + EPA",
-  description: "Interactive visual guide to convex proxies, support mappings, Minkowski difference, GJK collision detection, and EPA penetration depth.",
+  title: "Convex collision: Rust GJK → EPA",
+  description: "Interactive visual guide to convex proxies, Rust-backed support mappings and GJK, with EPA as the next penetration-depth stage.",
 };
 
 const stages = [
@@ -19,19 +19,19 @@ const stages = [
     number: "02",
     eyebrow: "Query",
     title: "Ask only for the furthest point.",
-    copy: "A support mapping answers one question: which point is furthest along direction d? GJK builds its proof from those answers, so spheres, boxes, hulls, capsules, and other convex shapes can share the same search structure.",
+    copy: "A support mapping answers one question: which point is furthest along direction d? The shared Rust geometry kernel owns those extreme-point queries, so spheres, boxes, hulls, capsules, and other convex shapes can share the same search structure.",
   },
   {
     number: "03",
     eyebrow: "Detect",
-    title: "Search A − B for the origin.",
-    copy: "Subtracting every point of B from every point of A produces the Minkowski difference. If that convex set contains the origin, the original shapes overlap. GJK approaches that yes/no answer with a tiny simplex instead of constructing the whole set.",
+    title: "Let Rust search A − B for the origin.",
+    copy: "If the Minkowski difference contains the origin, the original shapes overlap. Collision Lab now reads each support witness, retained simplex, search direction, termination status, and intersection result from the authoritative Rust GJK implementation instead of reproducing its state machine in the browser.",
   },
   {
     number: "04",
-    eyebrow: "Resolve",
-    title: "Expand the simplex into penetration data.",
-    copy: "After GJK finds overlap, EPA grows the enclosed simplex toward the boundary of A − B. Its closest boundary feature gives an estimate of penetration depth and the direction needed to separate the shapes.",
+    eyebrow: "Next",
+    title: "Expand an overlapping simplex into penetration data.",
+    copy: "EPA is the next ownership slice. It should consume the intersecting Rust GJK simplex and return deterministic penetration depth, normal, and trace evidence before Collision Lab treats that result as authoritative geometry.",
   },
 ];
 
@@ -46,8 +46,8 @@ export default function ConvexPage() {
             <div className="flex flex-wrap gap-2 text-xs font-semibold text-zinc-500">
               <span className="rounded-full border border-cyan-900/60 bg-cyan-950/25 px-3 py-1.5 text-cyan-300">convex proxies</span>
               <span className="rounded-full border border-amber-900/60 bg-amber-950/25 px-3 py-1.5 text-amber-300">support mapping</span>
-              <span className="rounded-full border border-violet-900/60 bg-violet-950/25 px-3 py-1.5 text-violet-300">GJK</span>
-              <span className="rounded-full border border-rose-900/60 bg-rose-950/25 px-3 py-1.5 text-rose-300">EPA</span>
+              <span className="rounded-full border border-violet-900/60 bg-violet-950/25 px-3 py-1.5 text-violet-300">Rust GJK</span>
+              <span className="rounded-full border border-rose-900/60 bg-rose-950/25 px-3 py-1.5 text-rose-300">EPA next</span>
             </div>
           </div>
 
@@ -55,10 +55,10 @@ export default function ConvexPage() {
             <div className="max-w-5xl">
               <p className="text-sm font-semibold uppercase tracking-[0.24em] text-zinc-500">Deep dive · Convex collision</p>
               <h1 className="mt-4 text-5xl font-semibold tracking-[-0.045em] text-zinc-50 sm:text-7xl">
-                From messy shapes to one clean collision proof.
+                From convex proxies to one Rust-owned collision proof.
               </h1>
               <p className="mt-6 max-w-3xl text-lg leading-8 text-zinc-400">
-                Convexity turns collision detection into a geometric search problem. Approximate the shape, expose a support mapping, search the Minkowski difference with GJK, then recover penetration information with EPA.
+                Convexity turns collision detection into a geometric search problem. Build a proxy, expose a support mapping, then inspect the exact support queries and simplex evolution returned by the shared Rust GJK kernel. Penetration recovery with EPA comes next.
               </p>
             </div>
             <div className="rounded-3xl border border-zinc-800 bg-zinc-950/75 p-6 shadow-xl shadow-black/20">
@@ -68,7 +68,7 @@ export default function ConvexPage() {
                 = support(A, d)<br />
                 − support(B, −d)
               </div>
-              <p className="mt-4 text-xs leading-5 text-zinc-600">One interface lets the same search work across many convex shape types.</p>
+              <p className="mt-4 text-xs leading-5 text-zinc-600">Rust returns both witness points as well as the Minkowski support point used by GJK.</p>
             </div>
           </div>
         </div>
@@ -132,14 +132,14 @@ export default function ConvexPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Mental model</p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-100">GJK asks “can a simplex reach the origin?” EPA asks “which boundary is closest?”</h2>
             <p className="mt-4 max-w-4xl text-sm leading-7 text-zinc-500">
-              That split is useful architecturally: support mappings define convex shapes; GJK consumes only that interface for overlap or distance; EPA can reuse the final overlapping simplex to extract a separation direction. The geometry type and the search algorithm stay loosely coupled.
+              That split is useful architecturally: support mappings define convex shapes; GJK consumes only that interface for overlap; EPA can reuse the final overlapping simplex to extract penetration information. The geometry type and search algorithms stay loosely coupled.
             </p>
           </div>
           <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-7">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Next lab step</p>
-            <h2 className="mt-3 text-xl font-semibold text-zinc-100">Move the correctness path into shared kernels.</h2>
+            <h2 className="mt-3 text-xl font-semibold text-zinc-100">Move EPA onto the same shared-kernel path.</h2>
             <p className="mt-3 text-sm leading-6 text-zinc-500">
-              This page is an inspectable 2D teaching implementation. A production follow-up can put support mappings, GJK distance/overlap, EPA penetration, tolerance policy, and deterministic fixtures into rust-kernels, then drive this visualization through WASM like the SAT lessons.
+              Support mappings and GJK collision truth now come from <span className="font-mono">geometry-kernels</span>. The next slice should make EPA penetration depth, normal, convergence, and failure semantics authoritative in Rust, then feed stable contact generation without moving solver response into Collision Lab.
             </p>
           </div>
         </div>

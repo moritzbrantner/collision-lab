@@ -12,9 +12,9 @@ The lab is intentionally separate from [`rust-kernels`](https://github.com/morit
 
 ### Explanation mode
 
-`/explain/` is the teaching surface. It uses small deterministic scenes, 2D diagrams, and projected 3D geometry to walk through real Rust algorithm decisions one step at a time. It now covers broad-phase pruning from naive all-pairs through grids, sweep-and-prune, BVHs, dynamic AABB trees, and octrees, followed by narrow-phase analytical primitives, 2D/3D OBB SAT, and closest-point capsule/common-primitive pairs.
+`/explain/` is the teaching surface. It uses small deterministic scenes, 2D diagrams, and projected 3D geometry to walk through real Rust algorithm decisions one step at a time. It now covers broad-phase pruning from naive all-pairs through grids, sweep-and-prune, BVHs, dynamic AABB trees, and octrees, followed by analytical primitives, 2D/3D OBB SAT, closest-point capsule/common-primitive pairs, and the Rust-backed convex support/GJK lesson.
 
-The web layer does not reimplement collision decisions. It obtains overlap results, execution traces, axes, projections, closest features, and work counters from Rust/WASM, then projects that state into SVG.
+The web layer does not reimplement collision decisions. It obtains overlap results, execution traces, axes, projections, closest features, GJK support witnesses/simplexes, and work counters from Rust/WASM, then projects that state into SVG. The convex page may materialize the full Minkowski boundary for teaching, but the GJK algorithm does not consume that browser-owned reference geometry.
 
 ### Experiment mode
 
@@ -50,8 +50,9 @@ All optimized broad phases are differential-tested against the naive reference a
 - **capsule ↔ capsule** — closest points on two finite segments plus the two radii
 - **2D OBB SAT** — four local face axes with explicit 1D projection evidence
 - **3D OBB SAT** — six face axes plus nine edge-cross axes, including explicit handling of degenerate parallel cross products
+- **convex support mapping + GJK** — shared Rust support queries and GJK intersection truth with optional deterministic trace evidence for the teaching UI
 
-Reusable geometry mechanisms live in `rust-kernels::geometry-kernels`; Collision Lab owns the teaching scenes and visual evidence.
+Reusable geometry mechanisms live in `rust-kernels::geometry-kernels`; Collision Lab owns the teaching scenes and visual evidence. Rust-owned EPA penetration depth/normal is the next narrow-phase roadmap slice, followed by contact generation.
 
 ## Website development
 
