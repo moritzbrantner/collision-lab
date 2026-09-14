@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use wasm_bindgen::prelude::*;
@@ -6,6 +8,8 @@ use wgpu::util::DeviceExt;
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
 const WORLD_EXTENT: f32 = 28.0;
+const GPU_QUERY_COUNT: u32 = 2;
+const GPU_QUERY_BYTES: u64 = GPU_QUERY_COUNT as u64 * wgpu::QUERY_SIZE;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -40,6 +44,15 @@ impl InstanceRaw {
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct CameraUniform {
     view_proj: [[f32; 4]; 4],
+}
+
+struct GpuTimer {
+    query_set: wgpu::QuerySet,
+    resolve_buffer: wgpu::Buffer,
+    readback_buffer: wgpu::Buffer,
+    timestamp_period_ns: f64,
+    map_result: Arc<Mutex<Option<Result<(), String>>>>,
+    pending: bool,
 }
 
 const CUBE_VERTICES: [Vertex; 8] = [
@@ -94,6 +107,7 @@ pub struct WgpuRenderer {
     depth_view: wgpu::TextureView,
     instances: Vec<InstanceRaw>,
     max_instances: usize,
+    gpu_timer: Option<GpuTimer>,
 }
 
 #[wasm_bindgen]
@@ -126,9 +140,16 @@ pub async fn create_renderer(
         .map_err(|error| {
             JsValue::from_str(&format!("failed to request WebGPU adapter: {error}"))
         })?;
+    let timestamp_supported = adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
+    let required_features = if timestamp_supported {
+        wgpu::Features::TIMESTAMP_QUERY
+    } else {
+        wgpu::Features::empty()
+    };
     let (device, queue) = adapter
         .request_device(&wgpu::DeviceDescriptor {
             label: Some("collision-lab browser wgpu device"),
+            required_features,
             ..Default::default()
         })
         .await
@@ -215,6 +236,7 @@ pub async fn create_renderer(
         }],
     });
     let (depth_texture, depth_view) = create_depth_resources(&device, width, height);
+    let gpu_timer = timestamp_supported.then(|| create_gpu_timer(&device, &queue));
 
     Ok(WgpuRenderer {
         surface,
@@ -231,6 +253,7 @@ pub async fn create_renderer(
         depth_view,
         instances: Vec::with_capacity(max_instances),
         max_instances,
+        gpu_timer,
     })
 }
 
@@ -254,6 +277,101 @@ impl WgpuRenderer {
     }
 
     pub fn render(&mut self, packed_instances: &[f32]) -> Result<(), JsValue> {
+        let instance_count = self.update_instances(packed_instances)?;
+        self.submit_frame(instance_count, false)?;
+        Ok(())
+    }
+
+    pub fn gpu_timing_supported(&self) -> bool {
+        self.gpu_timer.is_some()
+    }
+
+    pub fn begin_gpu_measurement(&mut self, packed_instances: &[f32]) -> Result<bool, JsValue> {
+        let Some(timer) = self.gpu_timer.as_ref() else {
+            return Ok(false);
+        };
+        if timer.pending {
+            return Err(JsValue::from_str("a GPU timing measurement is already pending"));
+        }
+
+        let instance_count = self.update_instances(packed_instances)?;
+        if !self.submit_frame(instance_count, true)? {
+            return Ok(false);
+        }
+
+        let timer = self
+            .gpu_timer
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("GPU timer disappeared during measurement"))?;
+        *timer
+            .map_result
+            .lock()
+            .map_err(|_| JsValue::from_str("GPU timing map state was poisoned"))? = None;
+        let map_result = Arc::clone(&timer.map_result);
+        timer
+            .readback_buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                if let Ok(mut state) = map_result.lock() {
+                    *state = Some(result.map_err(|error| error.to_string()));
+                }
+            });
+        timer.pending = true;
+        Ok(true)
+    }
+
+    pub fn poll_gpu_measurement(&mut self) -> Result<Option<f64>, JsValue> {
+        let Some(timer) = self.gpu_timer.as_mut() else {
+            return Ok(None);
+        };
+        if !timer.pending {
+            return Ok(None);
+        }
+
+        let result = timer
+            .map_result
+            .lock()
+            .map_err(|_| JsValue::from_str("GPU timing map state was poisoned"))?
+            .take();
+        let Some(result) = result else {
+            return Ok(None);
+        };
+        result.map_err(|error| JsValue::from_str(&format!("GPU timing readback failed: {error}")))?;
+
+        let view = timer
+            .readback_buffer
+            .slice(..)
+            .get_mapped_range()
+            .map_err(|error| JsValue::from_str(&format!("GPU timing mapped range failed: {error}")))?;
+        if view.len() < GPU_QUERY_BYTES as usize {
+            drop(view);
+            timer.readback_buffer.unmap();
+            timer.pending = false;
+            return Err(JsValue::from_str("GPU timing readback was shorter than two timestamps"));
+        }
+        let start = u64::from_le_bytes(
+            view[0..8]
+                .try_into()
+                .map_err(|_| JsValue::from_str("invalid GPU timing start timestamp"))?,
+        );
+        let end = u64::from_le_bytes(
+            view[8..16]
+                .try_into()
+                .map_err(|_| JsValue::from_str("invalid GPU timing end timestamp"))?,
+        );
+        drop(view);
+        timer.readback_buffer.unmap();
+        timer.pending = false;
+        if end < start {
+            return Err(JsValue::from_str("GPU timing end timestamp preceded its start"));
+        }
+        let elapsed_ms = (end - start) as f64 * timer.timestamp_period_ns / 1_000_000.0;
+        Ok(Some(elapsed_ms))
+    }
+}
+
+impl WgpuRenderer {
+    fn update_instances(&mut self, packed_instances: &[f32]) -> Result<usize, JsValue> {
         if !packed_instances.len().is_multiple_of(6) {
             return Err(JsValue::from_str(
                 "instance data must contain center xyz and scale xyz for each body",
@@ -281,16 +399,19 @@ impl WgpuRenderer {
                 bytemuck::cast_slice(&self.instances),
             );
         }
+        Ok(instance_count)
+    }
 
+    fn submit_frame(&mut self, instance_count: usize, timed: bool) -> Result<bool, JsValue> {
         let surface_texture = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(texture)
             | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => texture,
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                return Ok(());
+                return Ok(false);
             }
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
                 self.surface.configure(&self.device, &self.config);
-                return Ok(());
+                return Ok(false);
             }
             wgpu::CurrentSurfaceTexture::Validation => {
                 return Err(JsValue::from_str("WebGPU surface validation failed"));
@@ -305,6 +426,17 @@ impl WgpuRenderer {
                 label: Some("collision-lab browser wgpu encoder"),
             });
 
+        let timestamp_writes = if timed {
+            self.gpu_timer
+                .as_ref()
+                .map(|timer| wgpu::RenderPassTimestampWrites {
+                    query_set: &timer.query_set,
+                    beginning_of_pass_write_index: Some(0),
+                    end_of_pass_write_index: Some(1),
+                })
+        } else {
+            None
+        };
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("collision-lab browser wgpu pass"),
@@ -330,7 +462,7 @@ impl WgpuRenderer {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes,
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -346,9 +478,49 @@ impl WgpuRenderer {
             }
         }
 
+        if timed {
+            if let Some(timer) = self.gpu_timer.as_ref() {
+                encoder.resolve_query_set(&timer.query_set, 0..GPU_QUERY_COUNT, &timer.resolve_buffer, 0);
+                encoder.copy_buffer_to_buffer(
+                    &timer.resolve_buffer,
+                    0,
+                    &timer.readback_buffer,
+                    0,
+                    GPU_QUERY_BYTES,
+                );
+            }
+        }
         self.queue.submit(Some(encoder.finish()));
         self.queue.present(surface_texture);
-        Ok(())
+        Ok(true)
+    }
+}
+
+fn create_gpu_timer(device: &wgpu::Device, queue: &wgpu::Queue) -> GpuTimer {
+    let query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
+        label: Some("collision-lab browser wgpu timestamp queries"),
+        ty: wgpu::QueryType::Timestamp,
+        count: GPU_QUERY_COUNT,
+    });
+    let resolve_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("collision-lab browser wgpu timestamp resolve"),
+        size: GPU_QUERY_BYTES,
+        usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let readback_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("collision-lab browser wgpu timestamp readback"),
+        size: GPU_QUERY_BYTES,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    GpuTimer {
+        query_set,
+        resolve_buffer,
+        readback_buffer,
+        timestamp_period_ns: f64::from(queue.get_timestamp_period()),
+        map_result: Arc::new(Mutex::new(None)),
+        pending: false,
     }
 }
 
