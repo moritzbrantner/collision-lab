@@ -232,7 +232,7 @@ pub async fn create_renderer(
         layout: &camera_bind_group_layout,
         entries: &[wgpu::BindGroupEntry {
             binding: 0,
-            resource: camera_buffer.as_entire_buffer_binding(),
+            resource: camera_buffer.as_entire_binding(),
         }],
     });
     let (depth_texture, depth_view) = create_depth_resources(&device, width, height);
