@@ -58,6 +58,7 @@ type RendererAdapter = {
   backend: string;
   render(instances: Float32Array<ArrayBuffer>): void;
   measureGpuFrame?: (instances: Float32Array<ArrayBuffer>) => Promise<number | null>;
+  abandonGpuTiming?: () => void;
   gpuTimingNote: string;
   dispose(): void;
 };
@@ -167,11 +168,24 @@ export function RendererComparison() {
         const completeProfile = async () => {
           if (!active || !adapter) return;
           const gpuSamples: number[] = [];
+          let gpuTimingFailure: string | null = null;
           if (adapter.measureGpuFrame) {
             setStatus("Collecting separate GPU timing samples…");
             for (let index = 0; index < GPU_TIMING_SAMPLES && active; index += 1) {
-              const value = await adapter.measureGpuFrame(lastInstances);
-              if (value !== null && Number.isFinite(value) && value >= 0) gpuSamples.push(value);
+              try {
+                const value = await adapter.measureGpuFrame(lastInstances);
+                if (value === null || !Number.isFinite(value) || value < 0) {
+                  gpuTimingFailure = "A GPU timing sample did not complete; remaining GPU samples were skipped.";
+                  adapter.abandonGpuTiming?.();
+                  break;
+                }
+                gpuSamples.push(value);
+              } catch (reason) {
+                const message = reason instanceof Error ? reason.message : String(reason);
+                gpuTimingFailure = `GPU timing became unavailable (${message}); remaining GPU samples were skipped.`;
+                adapter.abandonGpuTiming?.();
+                break;
+              }
             }
           }
           if (!active) return;
@@ -193,7 +207,9 @@ export function RendererComparison() {
             frameIntervalMs: statistics(frameIntervalSamples),
             gpuRenderMs: gpuSamples.length > 0 ? statistics(gpuSamples) : null,
             gpuTimingSamples: gpuSamples.length,
-            gpuTimingNote: adapter.gpuTimingNote,
+            gpuTimingNote: gpuTimingFailure
+              ? `${adapter.gpuTimingNote} ${gpuTimingFailure}`
+              : adapter.gpuTimingNote,
             environment: {
               userAgent: navigator.userAgent,
               hardwareConcurrency: navigator.hardwareConcurrency,
@@ -322,6 +338,7 @@ export function RendererComparison() {
 
       <div className="relative aspect-video bg-[#0c0d10]">
         <canvas
+          key={rendererKind}
           ref={canvasRef}
           width={WIDTH}
           height={HEIGHT}
@@ -551,6 +568,13 @@ async function createWgpuRenderer(
   await wgpuModule.default();
   const renderer = await wgpuModule.create_renderer(canvas, WIDTH, HEIGHT, maxInstances);
   const canMeasureGpu = renderer.gpu_timing_supported();
+  let disposed = false;
+  let gpuTimingAbandoned = false;
+  const disposeRenderer = () => {
+    if (disposed) return;
+    renderer.free();
+    disposed = true;
+  };
   return {
     backend: "Rust/WASM wgpu / BrowserWebGPU",
     render(instances) {
@@ -558,6 +582,7 @@ async function createWgpuRenderer(
     },
     measureGpuFrame: canMeasureGpu
       ? async (instances) => {
+          if (gpuTimingAbandoned || disposed) return null;
           if (!renderer.begin_gpu_measurement(instances)) return null;
           const deadline = performance.now() + 3000;
           while (performance.now() < deadline) {
@@ -570,11 +595,17 @@ async function createWgpuRenderer(
           return null;
         }
       : undefined,
+    abandonGpuTiming: canMeasureGpu
+      ? () => {
+          gpuTimingAbandoned = true;
+          disposeRenderer();
+        }
+      : undefined,
     gpuTimingNote: canMeasureGpu
       ? "GPU samples use wgpu TIMESTAMP_QUERY render-pass timestamps with asynchronous readback in a separate timing phase."
       : "GPU timestamps are unavailable because the active browser WebGPU adapter does not expose TIMESTAMP_QUERY.",
     dispose() {
-      renderer.free();
+      disposeRenderer();
     },
   };
 }
