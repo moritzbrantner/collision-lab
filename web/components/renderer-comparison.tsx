@@ -468,6 +468,7 @@ async function createThreeWebGpuRenderer(
     alpha: false,
     powerPreference: "high-performance",
     outputBufferType: THREE.UnsignedByteType,
+    trackTimestamp: profileMode,
   });
   renderer.setPixelRatio(1);
   renderer.setSize(WIDTH, HEIGHT, false);
@@ -475,7 +476,6 @@ async function createThreeWebGpuRenderer(
 
   const backend = renderer.backend as typeof renderer.backend & {
     isWebGPUBackend?: boolean;
-    hasTimestamp: boolean;
     trackTimestamp: boolean;
     resolveTimestampsAsync(type?: string): Promise<number>;
   };
@@ -483,6 +483,7 @@ async function createThreeWebGpuRenderer(
     renderer.dispose();
     throw new Error("Three.js WebGPURenderer fell back from WebGPU; refusing to mislabel the benchmark");
   }
+  const canMeasureGpu = profileMode && backend.trackTimestamp;
   backend.trackTimestamp = false;
 
   const geometry = new THREE.BoxGeometry(1, 1, 1);
@@ -509,7 +510,6 @@ async function createThreeWebGpuRenderer(
     mesh.instanceMatrix.needsUpdate = true;
   };
 
-  const canMeasureGpu = profileMode && backend.hasTimestamp;
   return {
     backend: "Three.js WebGPURenderer / WebGPU",
     render(instances) {
