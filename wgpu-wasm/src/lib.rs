@@ -232,7 +232,7 @@ pub async fn create_renderer(
         layout: &camera_bind_group_layout,
         entries: &[wgpu::BindGroupEntry {
             binding: 0,
-            resource: camera_buffer.as_entire_binding(),
+            resource: camera_buffer.as_entire_buffer_binding(),
         }],
     });
     let (depth_texture, depth_view) = create_depth_resources(&device, width, height);
@@ -341,13 +341,7 @@ impl WgpuRenderer {
         result
             .map_err(|error| JsValue::from_str(&format!("GPU timing readback failed: {error}")))?;
 
-        let view = timer
-            .readback_buffer
-            .slice(..)
-            .get_mapped_range()
-            .map_err(|error| {
-                JsValue::from_str(&format!("GPU timing mapped range failed: {error}"))
-            })?;
+        let view = timer.readback_buffer.slice(..).get_mapped_range();
         if view.len() < GPU_QUERY_BYTES as usize {
             drop(view);
             timer.readback_buffer.unmap();
