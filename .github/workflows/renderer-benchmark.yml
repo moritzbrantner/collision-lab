@@ -1,0 +1,87 @@
+name: Renderer benchmark matrix
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "wasm/**"
+      - "wgpu-wasm/**"
+      - "scripts/profile-renderer*.sh"
+      - "profiles/runtime-profiler/renderer-*.json"
+      - ".github/workflows/renderer-benchmark.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  renderer-matrix:
+    name: Browser renderer matrix
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add wasm32-unknown-unknown
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Build benchmark surface
+        working-directory: web
+        run: |
+          bun install
+          bun run wasm
+          GITHUB_ACTIONS=false bun run build
+          bunx playwright install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y libvulkan1 mesa-vulkan-drivers xvfb xauth
+
+      - name: Capture bounded software-GPU matrix
+        env:
+          CI: "true"
+          RENDERER_PROFILE_RENDERERS: "three three-webgpu wgpu"
+          RENDERER_PROFILE_OBJECTS_SET: "100 1000 5000"
+          RENDERER_PROFILE_FRAMES: "60"
+        run: |
+          set -euo pipefail
+          bash scripts/profile-renderer-matrix.sh | tee "$RUNNER_TEMP/renderer-matrix.ndjson"
+          jq -s -e '
+            length == 9 and
+            all(.[]; .done == true) and
+            ([.[].renderer] | unique | sort) == ["three", "three-webgpu", "wgpu"] and
+            ([.[].objects] | unique | sort) == [100, 1000, 5000]
+          ' "$RUNNER_TEMP/renderer-matrix.ndjson" >/dev/null
+
+      - name: Publish matrix summary
+        run: |
+          {
+            echo '### Browser renderer matrix'
+            echo
+            echo '| Renderer | Objects | CPU median | CPU p95 | Simulation/transfer median | RAF median | Init | GPU median | Backend |'
+            echo '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |'
+            jq -sr '.[] | "| \(.renderer) | \(.objects) | \(.renderCpuMs.median | tostring) ms | \(.renderCpuMs.p95 | tostring) ms | \(.simulationTransferMs.median | tostring) ms | \(.frameIntervalMs.median | tostring) ms | \(.rendererInitializationMs | tostring) ms | \(if .gpuRenderMs == null then "n/a" else ((.gpuRenderMs.median | tostring) + " ms") end) | \(.backend) |"' "$RUNNER_TEMP/renderer-matrix.ndjson"
+            echo
+            echo '> CI runs Chromium through software GPU backends. These numbers are deterministic regression evidence only; GitHub Pages/manual hardware runs are authoritative for physical-GPU performance.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload matrix evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: renderer-benchmark-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/renderer-matrix.ndjson
+          if-no-files-found: warn
