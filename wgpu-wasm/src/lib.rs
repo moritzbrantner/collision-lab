@@ -9,7 +9,7 @@ use wgpu::util::DeviceExt;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
 const WORLD_EXTENT: f32 = 28.0;
 const GPU_QUERY_COUNT: u32 = 2;
-const GPU_QUERY_BYTES: u64 = GPU_QUERY_COUNT as u64 * wgpu::QUERY_SIZE;
+const GPU_QUERY_BYTES: u64 = GPU_QUERY_COUNT as u64 * wgpu::QUERY_SIZE as u64;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
