@@ -550,12 +550,29 @@ async function createWgpuRenderer(
   const wgpuModule = await import("../lib/wgpu-wasm-pkg/collision_wgpu_wasm");
   await wgpuModule.default();
   const renderer = await wgpuModule.create_renderer(canvas, WIDTH, HEIGHT, maxInstances);
+  const canMeasureGpu = renderer.gpu_timing_supported();
   return {
     backend: "Rust/WASM wgpu / BrowserWebGPU",
     render(instances) {
       renderer.render(instances);
     },
-    gpuTimingNote: "GPU timestamps are not yet exposed across the Rust/WASM wgpu boundary; CPU/RAF metrics remain authoritative for this path in this slice.",
+    measureGpuFrame: canMeasureGpu
+      ? async (instances) => {
+          if (!renderer.begin_gpu_measurement(instances)) return null;
+          const deadline = performance.now() + 3000;
+          while (performance.now() < deadline) {
+            const duration = renderer.poll_gpu_measurement();
+            if (typeof duration === "number") {
+              return Number.isFinite(duration) && duration >= 0 ? duration : null;
+            }
+            await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+          }
+          return null;
+        }
+      : undefined,
+    gpuTimingNote: canMeasureGpu
+      ? "GPU samples use wgpu TIMESTAMP_QUERY render-pass timestamps with asynchronous readback in a separate timing phase."
+      : "GPU timestamps are unavailable because the active browser WebGPU adapter does not expose TIMESTAMP_QUERY.",
     dispose() {
       renderer.free();
     },
