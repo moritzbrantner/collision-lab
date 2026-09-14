@@ -291,7 +291,9 @@ impl WgpuRenderer {
             return Ok(false);
         };
         if timer.pending {
-            return Err(JsValue::from_str("a GPU timing measurement is already pending"));
+            return Err(JsValue::from_str(
+                "a GPU timing measurement is already pending",
+            ));
         }
 
         let instance_count = self.update_instances(packed_instances)?;
@@ -336,18 +338,23 @@ impl WgpuRenderer {
         let Some(result) = result else {
             return Ok(None);
         };
-        result.map_err(|error| JsValue::from_str(&format!("GPU timing readback failed: {error}")))?;
+        result
+            .map_err(|error| JsValue::from_str(&format!("GPU timing readback failed: {error}")))?;
 
         let view = timer
             .readback_buffer
             .slice(..)
             .get_mapped_range()
-            .map_err(|error| JsValue::from_str(&format!("GPU timing mapped range failed: {error}")))?;
+            .map_err(|error| {
+                JsValue::from_str(&format!("GPU timing mapped range failed: {error}"))
+            })?;
         if view.len() < GPU_QUERY_BYTES as usize {
             drop(view);
             timer.readback_buffer.unmap();
             timer.pending = false;
-            return Err(JsValue::from_str("GPU timing readback was shorter than two timestamps"));
+            return Err(JsValue::from_str(
+                "GPU timing readback was shorter than two timestamps",
+            ));
         }
         let start = u64::from_le_bytes(
             view[0..8]
@@ -363,7 +370,9 @@ impl WgpuRenderer {
         timer.readback_buffer.unmap();
         timer.pending = false;
         if end < start {
-            return Err(JsValue::from_str("GPU timing end timestamp preceded its start"));
+            return Err(JsValue::from_str(
+                "GPU timing end timestamp preceded its start",
+            ));
         }
         let elapsed_ms = (end - start) as f64 * timer.timestamp_period_ns / 1_000_000.0;
         Ok(Some(elapsed_ms))
@@ -480,7 +489,12 @@ impl WgpuRenderer {
 
         if timed {
             if let Some(timer) = self.gpu_timer.as_ref() {
-                encoder.resolve_query_set(&timer.query_set, 0..GPU_QUERY_COUNT, &timer.resolve_buffer, 0);
+                encoder.resolve_query_set(
+                    &timer.query_set,
+                    0..GPU_QUERY_COUNT,
+                    &timer.resolve_buffer,
+                    0,
+                );
                 encoder.copy_buffer_to_buffer(
                     &timer.resolve_buffer,
                     0,
