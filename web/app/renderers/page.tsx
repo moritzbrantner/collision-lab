@@ -10,13 +10,13 @@ export default function RenderersPage() {
       </Link>
       <div className="mt-8 max-w-4xl">
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">
-          Browser renderer experiment
+          Browser renderer benchmark
         </p>
         <h1 className="mt-3 text-4xl font-semibold tracking-tight text-zinc-50 sm:text-5xl">
-          Three.js versus Rust/WASM wgpu.
+          WebGL2, Three.js WebGPU, and Rust/WASM wgpu.
         </h1>
         <p className="mt-5 text-lg leading-8 text-zinc-400">
-          This page keeps Collision Lab&apos;s deterministic Rust scene fixed and swaps only the browser renderer. Use the URL query parameter <code className="rounded bg-zinc-900 px-1.5 py-0.5 text-sm text-zinc-300">renderer=three</code> or <code className="rounded bg-zinc-900 px-1.5 py-0.5 text-sm text-zinc-300">renderer=wgpu</code> so browser runs and profiler evidence are reproducible.
+          Collision Lab keeps the deterministic Rust scene fixed and swaps only the browser renderer boundary. Reproducible runs use <code className="rounded bg-zinc-900 px-1.5 py-0.5 text-sm text-zinc-300">renderer=three</code>, <code className="rounded bg-zinc-900 px-1.5 py-0.5 text-sm text-zinc-300">renderer=three-webgpu</code>, or <code className="rounded bg-zinc-900 px-1.5 py-0.5 text-sm text-zinc-300">renderer=wgpu</code> together with explicit object and frame counts.
         </p>
       </div>
 
@@ -24,7 +24,7 @@ export default function RenderersPage() {
         <RendererComparison />
       </div>
 
-      <section className="mt-10 grid gap-4 md:grid-cols-2">
+      <section className="mt-10 grid gap-4 md:grid-cols-3">
         <article className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
           <h2 className="font-semibold text-zinc-200">Held constant</h2>
           <p className="mt-2 text-sm leading-6 text-zinc-500">
@@ -32,9 +32,15 @@ export default function RenderersPage() {
           </p>
         </article>
         <article className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
-          <h2 className="font-semibold text-zinc-200">Deliberately different</h2>
+          <h2 className="font-semibold text-zinc-200">Measured separately</h2>
           <p className="mt-2 text-sm leading-6 text-zinc-500">
-            One adapter updates a Three.js InstancedMesh and submits through WebGL. The other calls a Rust WASM renderer whose wgpu instance is restricted to BrowserWebGPU and submits directly to the canvas WebGPU surface.
+            CPU submission, simulation plus JSON/packing transfer, RAF cadence, renderer initialization, resource bytes, and optional GPU timestamp samples stay distinct so one bottleneck cannot masquerade as another.
+          </p>
+        </article>
+        <article className="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
+          <h2 className="font-semibold text-zinc-200">Evidence boundary</h2>
+          <p className="mt-2 text-sm leading-6 text-zinc-500">
+            CI software-GPU runs are deterministic regression evidence. Hardware-browser runs on this Pages surface are the evidence for real device performance; unsupported GPU timing is reported as unavailable rather than inferred.
           </p>
         </article>
       </section>
