@@ -341,7 +341,11 @@ impl WgpuRenderer {
         result
             .map_err(|error| JsValue::from_str(&format!("GPU timing readback failed: {error}")))?;
 
-        let view = timer.readback_buffer.slice(..).get_mapped_range();
+        let view = timer
+            .readback_buffer
+            .slice(..)
+            .get_mapped_range()
+            .map_err(|error| JsValue::from_str(&format!("GPU timing mapped range failed: {error}")))?;
         if view.len() < GPU_QUERY_BYTES as usize {
             drop(view);
             timer.readback_buffer.unmap();
