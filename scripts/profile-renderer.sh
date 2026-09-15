@@ -2,8 +2,8 @@
 set -euo pipefail
 
 renderer="${1:-}"
-if [[ "$renderer" != "three" && "$renderer" != "wgpu" ]]; then
-  echo "usage: $0 <three|wgpu>" >&2
+if [[ "$renderer" != "three" && "$renderer" != "three-webgpu" && "$renderer" != "wgpu" ]]; then
+  echo "usage: $0 <three|three-webgpu|wgpu>" >&2
   exit 2
 fi
 

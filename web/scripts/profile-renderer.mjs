@@ -4,12 +4,13 @@ import process from "node:process";
 import { chromium } from "@playwright/test";
 
 const renderer = process.argv[2];
-if (renderer !== "three" && renderer !== "wgpu") {
-  throw new Error("renderer argument must be 'three' or 'wgpu'");
+const renderers = new Set(["three", "three-webgpu", "wgpu"]);
+if (!renderers.has(renderer)) {
+  throw new Error("renderer argument must be 'three', 'three-webgpu', or 'wgpu'");
 }
 
 const frames = boundedInteger(process.env.RENDERER_PROFILE_FRAMES, 180, 30, 1200);
-const objects = boundedInteger(process.env.RENDERER_PROFILE_OBJECTS, 1000, 40, 5000);
+const objects = boundedInteger(process.env.RENDERER_PROFILE_OBJECTS, 1000, 40, 20_000);
 const port = boundedInteger(process.env.RENDERER_PROFILE_PORT, 4174, 1024, 65535);
 const origin = `http://127.0.0.1:${port}`;
 const server = spawn(
@@ -53,7 +54,7 @@ try {
   await page.waitForFunction(
     () => window.__collisionRendererProfile?.done === true,
     undefined,
-    { timeout: 60_000 },
+    { timeout: 180_000 },
   );
   const result = await page.evaluate(() => window.__collisionRendererProfile);
   validateResult(result, renderer, objects, frames);
@@ -66,12 +67,27 @@ try {
 function validateResult(result, expectedRenderer, expectedObjects, expectedFrames) {
   if (!result || result.done !== true) throw new Error("browser profile did not produce a completed result");
   if (result.renderer !== expectedRenderer) throw new Error(`renderer mismatch: ${result.renderer}`);
+  if (typeof result.backend !== "string" || result.backend.length === 0) throw new Error("browser profile did not identify its actual backend");
   if (result.objects !== expectedObjects) throw new Error(`object-count mismatch: ${result.objects}`);
   if (result.measuredFrames !== expectedFrames) throw new Error(`frame-count mismatch: ${result.measuredFrames}`);
+  for (const value of [result.rendererInitializationMs, result.navigationToReadyMs, result.loadedResourceBytes]) {
+    if (!Number.isFinite(value) || value < 0) throw new Error("browser profile emitted an invalid initialization/resource metric");
+  }
   for (const metric of [result.renderCpuMs, result.simulationTransferMs, result.frameIntervalMs]) {
-    for (const value of [metric?.mean, metric?.median, metric?.p95]) {
-      if (!Number.isFinite(value) || value < 0) throw new Error("browser profile emitted an invalid timing metric");
-    }
+    validateStatistics(metric, "browser timing");
+  }
+  if (result.gpuRenderMs !== null) validateStatistics(result.gpuRenderMs, "GPU timing");
+  if (!Number.isInteger(result.gpuTimingSamples) || result.gpuTimingSamples < 0) {
+    throw new Error("browser profile emitted an invalid GPU sample count");
+  }
+  if (typeof result.gpuTimingNote !== "string" || result.gpuTimingNote.length === 0) {
+    throw new Error("browser profile did not explain GPU timing availability");
+  }
+}
+
+function validateStatistics(metric, label) {
+  for (const value of [metric?.mean, metric?.median, metric?.p95]) {
+    if (!Number.isFinite(value) || value < 0) throw new Error(`${label} emitted an invalid timing metric`);
   }
 }
 

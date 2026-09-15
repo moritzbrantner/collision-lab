@@ -1,15 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import * as THREE from "three";
 
-import initCollisionWasm, { DemoWorld } from "../lib/wasm-pkg/collision_wasm";
-import initWgpuWasm, {
-  create_renderer,
-  type WgpuRenderer,
-} from "../lib/wgpu-wasm-pkg/collision_wgpu_wasm";
-
-type RendererKind = "three" | "wgpu";
+type RendererKind = "three" | "three-webgpu" | "wgpu";
 type DemoBody = {
   min: [number, number, number];
   max: [number, number, number];
@@ -22,16 +15,30 @@ type Statistics = {
   median: number;
   p95: number;
 };
+type BrowserEnvironment = {
+  userAgent: string;
+  hardwareConcurrency: number;
+  devicePixelRatio: number;
+};
 export type RendererProfileResult = {
   done: true;
   renderer: RendererKind;
+  backend: string;
   objects: number;
   warmupFrames: number;
   measuredFrames: number;
   resolution: [number, number];
+  rendererInitializationMs: number;
+  navigationToReadyMs: number;
+  loadedResourceBytes: number;
+  jsHeapUsedBytes: number | null;
   renderCpuMs: Statistics;
   simulationTransferMs: Statistics;
   frameIntervalMs: Statistics;
+  gpuRenderMs: Statistics | null;
+  gpuTimingSamples: number;
+  gpuTimingNote: string;
+  environment: BrowserEnvironment;
   note: string;
 };
 
@@ -41,9 +48,24 @@ declare global {
   }
 }
 
+type DemoWorldHandle = {
+  snapshot_json(algorithm: string): string;
+  step_json(algorithm: string, timestepSeconds: number): string;
+  free(): void;
+};
+
 type RendererAdapter = {
+  backend: string;
   render(instances: Float32Array<ArrayBuffer>): void;
+  measureGpuFrame?: (instances: Float32Array<ArrayBuffer>) => Promise<number | null>;
+  abandonGpuTiming?: () => void;
+  gpuTimingNote: string;
   dispose(): void;
+};
+
+type DisjointTimerQueryExtension = {
+  TIME_ELAPSED_EXT: number;
+  GPU_DISJOINT_EXT: number;
 };
 
 const WIDTH = 960;
@@ -51,8 +73,17 @@ const HEIGHT = 540;
 const WORLD_EXTENT = 28;
 const FIXED_TIMESTEP_SECONDS = 1 / 60;
 const DEFAULT_OBJECTS = 1000;
+const MAX_OBJECTS = 20_000;
 const DEFAULT_PROFILE_FRAMES = 180;
 const WARMUP_FRAMES = 30;
+const GPU_TIMING_SAMPLES = 12;
+const OBJECT_TIERS = [100, 1000, 5000, 20_000] as const;
+
+const RENDERER_LABELS: Record<RendererKind, string> = {
+  three: "Three.js / WebGL2",
+  "three-webgpu": "Three.js / WebGPU",
+  wgpu: "Rust/WASM + wgpu",
+};
 
 export function RendererComparison() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -65,12 +96,12 @@ export function RendererComparison() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const requestedRenderer = params.get("renderer");
+    const requestedRenderer = parseRendererKind(params.get("renderer"));
     const requestedObjects = Number(params.get("objects"));
     const requestedFrames = Number(params.get("frames"));
-    setRendererKind(requestedRenderer === "wgpu" ? "wgpu" : "three");
+    setRendererKind(requestedRenderer);
     if (Number.isFinite(requestedObjects) && requestedObjects >= 40) {
-      setObjects(Math.min(5000, Math.round(requestedObjects)));
+      setObjects(Math.min(MAX_OBJECTS, Math.round(requestedObjects)));
     }
     if (Number.isFinite(requestedFrames) && requestedFrames >= 30) {
       setProfileFrames(Math.min(1200, Math.round(requestedFrames)));
@@ -85,18 +116,21 @@ export function RendererComparison() {
 
     let active = true;
     let animationFrame = 0;
-    let world: DemoWorld | null = null;
+    let world: DemoWorldHandle | null = null;
     let adapter: RendererAdapter | null = null;
 
     async function run() {
       try {
         setProfile(null);
         window.__collisionRendererProfile = undefined;
-        setStatus(`Initializing ${rendererKind === "three" ? "Three.js/WebGL" : "Rust/WASM/wgpu"}…`);
-        await initCollisionWasm();
+        const resourceStart = performance.now();
+        setStatus(`Initializing ${RENDERER_LABELS[rendererKind]}…`);
+
+        const collisionModule = await import("../lib/wasm-pkg/collision_wasm");
+        await collisionModule.default();
         if (!active) return;
 
-        world = new DemoWorld(
+        world = new collisionModule.DemoWorld(
           "clustered",
           objects,
           4,
@@ -107,26 +141,86 @@ export function RendererComparison() {
           0.7,
           8,
           0,
-        );
+        ) as DemoWorldHandle;
         const initialSnapshot = JSON.parse(world.snapshot_json("uniform-grid")) as DemoSnapshot;
         const packed = packInstances(initialSnapshot);
 
-        adapter = rendererKind === "three"
-          ? createThreeRenderer(renderCanvas, objects)
-          : await createWgpuRenderer(renderCanvas, objects);
+        const rendererInitializationStarted = performance.now();
+        adapter = await createRenderer(rendererKind, renderCanvas, objects, profileMode);
+        const rendererInitializationMs = performance.now() - rendererInitializationStarted;
         if (!active) {
           adapter.dispose();
           adapter = null;
           return;
         }
         adapter.render(packed);
+        const navigationToReadyMs = performance.now();
+        const loadedResourceBytes = loadedBytesSince(resourceStart);
         setStatus(profileMode ? "Profiling deterministic renderer workload…" : "Running deterministic scene");
 
         let frame = 0;
         let previousTimestamp: number | null = null;
+        let lastInstances = packed;
         const renderCpuSamples: number[] = [];
         const simulationTransferSamples: number[] = [];
         const frameIntervalSamples: number[] = [];
+
+        const completeProfile = async () => {
+          if (!active || !adapter) return;
+          const gpuSamples: number[] = [];
+          let gpuTimingFailure: string | null = null;
+          if (adapter.measureGpuFrame) {
+            setStatus("Collecting separate GPU timing samples…");
+            for (let index = 0; index < GPU_TIMING_SAMPLES && active; index += 1) {
+              try {
+                const value = await adapter.measureGpuFrame(lastInstances);
+                if (value === null || !Number.isFinite(value) || value < 0) {
+                  gpuTimingFailure = "A GPU timing sample did not complete; remaining GPU samples were skipped.";
+                  adapter.abandonGpuTiming?.();
+                  break;
+                }
+                gpuSamples.push(value);
+              } catch (reason) {
+                const message = reason instanceof Error ? reason.message : String(reason);
+                gpuTimingFailure = `GPU timing became unavailable (${message}); remaining GPU samples were skipped.`;
+                adapter.abandonGpuTiming?.();
+                break;
+              }
+            }
+          }
+          if (!active) return;
+
+          const result: RendererProfileResult = {
+            done: true,
+            renderer: rendererKind,
+            backend: adapter.backend,
+            objects,
+            warmupFrames: WARMUP_FRAMES,
+            measuredFrames: profileFrames,
+            resolution: [WIDTH, HEIGHT],
+            rendererInitializationMs,
+            navigationToReadyMs,
+            loadedResourceBytes,
+            jsHeapUsedBytes: readJsHeapUsedBytes(),
+            renderCpuMs: statistics(renderCpuSamples),
+            simulationTransferMs: statistics(simulationTransferSamples),
+            frameIntervalMs: statistics(frameIntervalSamples),
+            gpuRenderMs: gpuSamples.length > 0 ? statistics(gpuSamples) : null,
+            gpuTimingSamples: gpuSamples.length,
+            gpuTimingNote: gpuTimingFailure
+              ? `${adapter.gpuTimingNote} ${gpuTimingFailure}`
+              : adapter.gpuTimingNote,
+            environment: {
+              userAgent: navigator.userAgent,
+              hardwareConcurrency: navigator.hardwareConcurrency,
+              devicePixelRatio: window.devicePixelRatio,
+            },
+            note: "CPU submission and RAF cadence are measured separately from optional GPU query samples. CI software-GPU results are regression evidence, not hardware-GPU claims.",
+          };
+          window.__collisionRendererProfile = result;
+          setProfile(result);
+          setStatus("Profile complete");
+        };
 
         const tick = (timestamp: number) => {
           if (!active || !world || !adapter) return;
@@ -137,6 +231,7 @@ export function RendererComparison() {
           ) as DemoSnapshot;
           const instances = packInstances(snapshot);
           const updateElapsed = performance.now() - updateStarted;
+          lastInstances = instances;
 
           const renderStarted = performance.now();
           adapter.render(instances);
@@ -153,21 +248,7 @@ export function RendererComparison() {
           frame += 1;
 
           if (profileMode && frame >= WARMUP_FRAMES + profileFrames) {
-            const result: RendererProfileResult = {
-              done: true,
-              renderer: rendererKind,
-              objects,
-              warmupFrames: WARMUP_FRAMES,
-              measuredFrames: profileFrames,
-              resolution: [WIDTH, HEIGHT],
-              renderCpuMs: statistics(renderCpuSamples),
-              simulationTransferMs: statistics(simulationTransferSamples),
-              frameIntervalMs: statistics(frameIntervalSamples),
-              note: "CPU-side submission and requestAnimationFrame cadence; no GPU timestamp query is claimed.",
-            };
-            window.__collisionRendererProfile = result;
-            setProfile(result);
-            setStatus("Profile complete");
+            void completeProfile();
             return;
           }
 
@@ -192,59 +273,80 @@ export function RendererComparison() {
   }, [objects, profileFrames, profileMode, rendererKind]);
 
   const selectRenderer = (kind: RendererKind) => {
+    updateQuery({ renderer: kind, objects });
+    setRendererKind(kind);
+  };
+
+  const selectObjects = (count: number) => {
+    updateQuery({ renderer: rendererKind, objects: count });
+    setObjects(count);
+  };
+
+  const updateQuery = ({ renderer, objects: nextObjects }: { renderer: RendererKind; objects: number }) => {
     const params = new URLSearchParams(window.location.search);
-    params.set("renderer", kind);
-    params.set("objects", String(objects));
+    params.set("renderer", renderer);
+    params.set("objects", String(nextObjects));
     if (profileMode) {
       params.set("profile", "1");
       params.set("frames", String(profileFrames));
     }
     window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
-    setRendererKind(kind);
   };
 
   return (
     <section className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950">
-      <div className="border-b border-zinc-800 p-5 sm:flex sm:items-center sm:justify-between sm:gap-6">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-            Same Rust scene · different renderer boundary
-          </p>
-          <h2 className="mt-2 text-xl font-semibold text-zinc-100">Renderer A/B canary</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">
-            Both variants consume the same deterministic DemoWorld snapshots. Three.js owns one WebGL renderer; the second path crosses into a Rust crate compiled to WASM and renders through wgpu&apos;s BrowserWebGPU backend.
-          </p>
+      <div className="border-b border-zinc-800 p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+              Same Rust scene · three renderer boundaries
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-zinc-100">Renderer comparison</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">
+              All paths consume the same deterministic DemoWorld snapshots. The benchmark separates legacy Three.js/WebGL2, Three.js/WebGPU, and the Rust/WASM wgpu BrowserWebGPU path.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1">
+            {(Object.keys(RENDERER_LABELS) as RendererKind[]).map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => selectRenderer(kind)}
+                aria-pressed={rendererKind === kind}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${rendererKind === kind ? "bg-zinc-100 text-zinc-950" : "text-zinc-400 hover:text-zinc-100"}`}
+              >
+                {RENDERER_LABELS[kind]}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="mt-4 flex shrink-0 rounded-xl border border-zinc-800 bg-zinc-900 p-1 sm:mt-0">
-          <button
-            type="button"
-            onClick={() => selectRenderer("three")}
-            aria-pressed={rendererKind === "three"}
-            className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${rendererKind === "three" ? "bg-zinc-100 text-zinc-950" : "text-zinc-400 hover:text-zinc-100"}`}
-          >
-            Three.js
-          </button>
-          <button
-            type="button"
-            onClick={() => selectRenderer("wgpu")}
-            aria-pressed={rendererKind === "wgpu"}
-            className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${rendererKind === "wgpu" ? "bg-zinc-100 text-zinc-950" : "text-zinc-400 hover:text-zinc-100"}`}
-          >
-            WASM + wgpu
-          </button>
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+          <span>Object tier:</span>
+          {OBJECT_TIERS.map((count) => (
+            <button
+              key={count}
+              type="button"
+              onClick={() => selectObjects(count)}
+              aria-pressed={objects === count}
+              className={`rounded-lg border px-2.5 py-1.5 font-mono transition ${objects === count ? "border-zinc-500 bg-zinc-800 text-zinc-100" : "border-zinc-800 text-zinc-500 hover:text-zinc-200"}`}
+            >
+              {count.toLocaleString()}
+            </button>
+          ))}
         </div>
       </div>
 
       <div className="relative aspect-video bg-[#0c0d10]">
         <canvas
+          key={rendererKind}
           ref={canvasRef}
           width={WIDTH}
           height={HEIGHT}
           className="h-full w-full"
-          aria-label={`${rendererKind === "three" ? "Three.js" : "Rust WASM wgpu"} collision renderer`}
+          aria-label={`${RENDERER_LABELS[rendererKind]} collision renderer`}
         />
         <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg border border-zinc-800 bg-zinc-950/90 px-3 py-2 text-xs text-zinc-400 backdrop-blur">
-          {rendererKind === "three" ? "Rust → WASM snapshot → Three.js/WebGL" : "Rust → WASM snapshot → Rust/WASM wgpu → WebGPU"}
+          {rendererPath(rendererKind)}
         </div>
         <div className="pointer-events-none absolute right-3 top-3 rounded-lg border border-zinc-800 bg-zinc-950/90 px-3 py-2 text-xs text-zinc-400 backdrop-blur">
           {objects.toLocaleString()} bodies · 960×540 · {status}
@@ -254,19 +356,41 @@ export function RendererComparison() {
       {profile && (
         <div className="border-t border-zinc-800 p-5" data-profile-result>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Measured browser run</p>
-          <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+          <p className="mt-1 text-xs text-zinc-600">Actual backend: {profile.backend}</p>
+          <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
             <ProfileMetric label="Render CPU median" value={`${profile.renderCpuMs.median.toFixed(3)} ms`} />
-            <ProfileMetric label="Render CPU p95" value={`${profile.renderCpuMs.p95.toFixed(3)} ms`} />
             <ProfileMetric label="Frame interval median" value={`${profile.frameIntervalMs.median.toFixed(3)} ms`} />
+            <ProfileMetric label="Renderer init" value={`${profile.rendererInitializationMs.toFixed(1)} ms`} />
+            <ProfileMetric
+              label="GPU median"
+              value={profile.gpuRenderMs ? `${profile.gpuRenderMs.median.toFixed(3)} ms` : "not available"}
+            />
           </div>
-          <p className="mt-3 text-xs leading-5 text-zinc-600">{profile.note}</p>
+          <p className="mt-3 text-xs leading-5 text-zinc-600">{profile.gpuTimingNote}</p>
+          <p className="mt-1 text-xs leading-5 text-zinc-600">{profile.note}</p>
         </div>
       )}
     </section>
   );
 }
 
-function createThreeRenderer(canvas: HTMLCanvasElement, maxInstances: number): RendererAdapter {
+async function createRenderer(
+  kind: RendererKind,
+  canvas: HTMLCanvasElement,
+  maxInstances: number,
+  profileMode: boolean,
+): Promise<RendererAdapter> {
+  if (kind === "three") return createThreeWebGlRenderer(canvas, maxInstances, profileMode);
+  if (kind === "three-webgpu") return createThreeWebGpuRenderer(canvas, maxInstances, profileMode);
+  return createWgpuRenderer(canvas, maxInstances);
+}
+
+async function createThreeWebGlRenderer(
+  canvas: HTMLCanvasElement,
+  maxInstances: number,
+  profileMode: boolean,
+): Promise<RendererAdapter> {
+  const THREE = await import("three");
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0c0d10);
   const camera = new THREE.PerspectiveCamera(48, WIDTH / HEIGHT, 0.1, 500);
@@ -294,21 +418,137 @@ function createThreeRenderer(canvas: HTMLCanvasElement, maxInstances: number): R
   const position = new THREE.Vector3();
   const scale = new THREE.Vector3();
   const rotation = new THREE.Quaternion();
+  const gl = renderer.getContext();
+  const timerExtension = profileMode
+    ? (gl.getExtension("EXT_disjoint_timer_query_webgl2") as DisjointTimerQueryExtension | null)
+    : null;
+
+  const updateInstances = (instances: Float32Array<ArrayBuffer>) => {
+    const count = instances.length / 6;
+    mesh.count = count;
+    for (let index = 0; index < count; index += 1) {
+      const offset = index * 6;
+      position.set(instances[offset], instances[offset + 1], instances[offset + 2]);
+      scale.set(instances[offset + 3], instances[offset + 4], instances[offset + 5]);
+      matrix.compose(position, rotation, scale);
+      mesh.setMatrixAt(index, matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  };
 
   return {
+    backend: "Three.js WebGLRenderer / WebGL2",
     render(instances) {
-      const count = instances.length / 6;
-      mesh.count = count;
-      for (let index = 0; index < count; index += 1) {
-        const offset = index * 6;
-        position.set(instances[offset], instances[offset + 1], instances[offset + 2]);
-        scale.set(instances[offset + 3], instances[offset + 4], instances[offset + 5]);
-        matrix.compose(position, rotation, scale);
-        mesh.setMatrixAt(index, matrix);
-      }
-      mesh.instanceMatrix.needsUpdate = true;
+      updateInstances(instances);
       renderer.render(scene, camera);
     },
+    measureGpuFrame: timerExtension
+      ? async (instances) => {
+          updateInstances(instances);
+          const query = gl.createQuery();
+          if (!query) return null;
+          gl.beginQuery(timerExtension.TIME_ELAPSED_EXT, query);
+          renderer.render(scene, camera);
+          gl.endQuery(timerExtension.TIME_ELAPSED_EXT);
+          return waitForWebGlTimer(gl, timerExtension, query);
+        }
+      : undefined,
+    gpuTimingNote: timerExtension
+      ? "GPU samples use EXT_disjoint_timer_query_webgl2 in a separate timing phase."
+      : "GPU timestamps are unavailable because EXT_disjoint_timer_query_webgl2 is not exposed by this browser/GPU.",
+    dispose() {
+      geometry.dispose();
+      material.dispose();
+      renderer.dispose();
+    },
+  };
+}
+
+async function createThreeWebGpuRenderer(
+  canvas: HTMLCanvasElement,
+  maxInstances: number,
+  profileMode: boolean,
+): Promise<RendererAdapter> {
+  if (!("gpu" in navigator)) throw new Error("WebGPU is not exposed by this browser");
+
+  const THREE = await import("three/webgpu");
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0c0d10);
+  const camera = new THREE.PerspectiveCamera(48, WIDTH / HEIGHT, 0.1, 500);
+  camera.position.set(WORLD_EXTENT * 1.45, WORLD_EXTENT * 1.15, WORLD_EXTENT * 1.45);
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+
+  const renderer = new THREE.WebGPURenderer({
+    canvas,
+    antialias: false,
+    alpha: false,
+    powerPreference: "high-performance",
+    outputBufferType: THREE.UnsignedByteType,
+    trackTimestamp: profileMode,
+  });
+  renderer.setPixelRatio(1);
+  renderer.setSize(WIDTH, HEIGHT, false);
+  await renderer.init();
+
+  const backend = renderer.backend as typeof renderer.backend & {
+    isWebGPUBackend?: boolean;
+    trackTimestamp: boolean;
+    resolveTimestampsAsync(type?: string): Promise<number>;
+  };
+  if (backend.isWebGPUBackend !== true) {
+    renderer.dispose();
+    throw new Error("Three.js WebGPURenderer fell back from WebGPU; refusing to mislabel the benchmark");
+  }
+  const canMeasureGpu = profileMode && backend.trackTimestamp;
+  backend.trackTimestamp = false;
+
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const material = new THREE.MeshBasicMaterial({ color: 0x67e8f9 });
+  const mesh = new THREE.InstancedMesh(geometry, material, maxInstances);
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  mesh.count = 0;
+  scene.add(mesh);
+
+  const matrix = new THREE.Matrix4();
+  const position = new THREE.Vector3();
+  const scale = new THREE.Vector3();
+  const rotation = new THREE.Quaternion();
+  const updateInstances = (instances: Float32Array<ArrayBuffer>) => {
+    const count = instances.length / 6;
+    mesh.count = count;
+    for (let index = 0; index < count; index += 1) {
+      const offset = index * 6;
+      position.set(instances[offset], instances[offset + 1], instances[offset + 2]);
+      scale.set(instances[offset + 3], instances[offset + 4], instances[offset + 5]);
+      matrix.compose(position, rotation, scale);
+      mesh.setMatrixAt(index, matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  };
+
+  return {
+    backend: "Three.js WebGPURenderer / WebGPU",
+    render(instances) {
+      updateInstances(instances);
+      renderer.render(scene, camera);
+    },
+    measureGpuFrame: canMeasureGpu
+      ? async (instances) => {
+          updateInstances(instances);
+          backend.trackTimestamp = true;
+          renderer.render(scene, camera);
+          try {
+            const duration = await backend.resolveTimestampsAsync("render");
+            return Number.isFinite(duration) && duration >= 0 ? duration : null;
+          } finally {
+            backend.trackTimestamp = false;
+          }
+        }
+      : undefined,
+    gpuTimingNote: canMeasureGpu
+      ? "GPU samples use Three.js WebGPU backend timestamp queries in a separate timing phase."
+      : "GPU timestamps are unavailable because the active WebGPU backend does not expose timestamp queries.",
     dispose() {
       geometry.dispose();
       material.dispose();
@@ -324,20 +564,94 @@ async function createWgpuRenderer(
   if (!("gpu" in navigator)) {
     throw new Error("WebGPU is not exposed by this browser");
   }
-  await initWgpuWasm();
-  const renderer = await create_renderer(canvas, WIDTH, HEIGHT, maxInstances);
+  const wgpuModule = await import("../lib/wgpu-wasm-pkg/collision_wgpu_wasm");
+  await wgpuModule.default();
+  const renderer = await wgpuModule.create_renderer(canvas, WIDTH, HEIGHT, maxInstances);
+  const canMeasureGpu = renderer.gpu_timing_supported();
+  let disposed = false;
+  let gpuTimingAbandoned = false;
+  const disposeRenderer = () => {
+    if (disposed) return;
+    renderer.free();
+    disposed = true;
+  };
   return {
+    backend: "Rust/WASM wgpu / BrowserWebGPU",
     render(instances) {
       renderer.render(instances);
     },
+    measureGpuFrame: canMeasureGpu
+      ? async (instances) => {
+          if (gpuTimingAbandoned || disposed) return null;
+          if (!renderer.begin_gpu_measurement(instances)) return null;
+          const deadline = performance.now() + 3000;
+          while (performance.now() < deadline) {
+            const duration = renderer.poll_gpu_measurement();
+            if (typeof duration === "number") {
+              return Number.isFinite(duration) && duration >= 0 ? duration : null;
+            }
+            await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+          }
+          return null;
+        }
+      : undefined,
+    abandonGpuTiming: canMeasureGpu
+      ? () => {
+          gpuTimingAbandoned = true;
+          disposeRenderer();
+        }
+      : undefined,
+    gpuTimingNote: canMeasureGpu
+      ? "GPU samples use wgpu TIMESTAMP_QUERY render-pass timestamps with asynchronous readback in a separate timing phase."
+      : "GPU timestamps are unavailable because the active browser WebGPU adapter does not expose TIMESTAMP_QUERY.",
     dispose() {
-      freeWgpuRenderer(renderer);
+      disposeRenderer();
     },
   };
 }
 
-function freeWgpuRenderer(renderer: WgpuRenderer) {
-  renderer.free();
+async function waitForWebGlTimer(
+  gl: WebGL2RenderingContext,
+  extension: DisjointTimerQueryExtension,
+  query: WebGLQuery,
+): Promise<number | null> {
+  const deadline = performance.now() + 3000;
+  while (performance.now() < deadline) {
+    const available = gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE) as boolean;
+    const disjoint = gl.getParameter(extension.GPU_DISJOINT_EXT) as boolean;
+    if (available) {
+      const elapsedNanoseconds = gl.getQueryParameter(query, gl.QUERY_RESULT) as number;
+      gl.deleteQuery(query);
+      return disjoint ? null : elapsedNanoseconds / 1_000_000;
+    }
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+  }
+  gl.deleteQuery(query);
+  return null;
+}
+
+function parseRendererKind(value: string | null): RendererKind {
+  if (value === "three-webgpu" || value === "wgpu") return value;
+  return "three";
+}
+
+function rendererPath(kind: RendererKind): string {
+  if (kind === "three-webgpu") return "Rust → WASM snapshot → Three.js/WebGPU";
+  if (kind === "wgpu") return "Rust → WASM snapshot → Rust/WASM wgpu → WebGPU";
+  return "Rust → WASM snapshot → Three.js/WebGL2";
+}
+
+function loadedBytesSince(startTime: number): number {
+  return performance
+    .getEntriesByType("resource")
+    .filter((entry): entry is PerformanceResourceTiming => entry instanceof PerformanceResourceTiming)
+    .filter((entry) => entry.startTime >= startTime)
+    .reduce((total, entry) => total + Math.max(entry.encodedBodySize, entry.transferSize, 0), 0);
+}
+
+function readJsHeapUsedBytes(): number | null {
+  const memory = (performance as Performance & { memory?: { usedJSHeapSize?: number } }).memory;
+  return typeof memory?.usedJSHeapSize === "number" ? memory.usedJSHeapSize : null;
 }
 
 function packInstances(snapshot: DemoSnapshot): Float32Array<ArrayBuffer> {
