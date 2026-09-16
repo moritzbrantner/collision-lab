@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "profile": "repository-foundation-v1",
+  "tiers": {
+    "performance": ["benchmark:smoke"]
+  },
+  "requiredCapabilities": ["benchmark:smoke"],
+  "capabilityCommands": {
+    ".": {
+      "benchmark:smoke": ["bash", "scripts/profile-broad-phase.sh"]
+    }
+  },
+  "merge": {
+    "authority": "hosted",
+    "requiredChecks": ["validate"]
+  }
+}
