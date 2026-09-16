@@ -364,11 +364,7 @@ impl ZombieArenaWorld {
         let mut bodies = std::mem::take(&mut self.collision_body_scratch);
         self.fill_collision_bodies(&mut bodies);
         let body_count = bodies.len();
-        let result = run_algorithm(
-            self.algorithm,
-            self.broad_phase_config(body_count),
-            &bodies,
-        );
+        let result = run_algorithm(self.algorithm, self.broad_phase_config(body_count), &bodies);
         self.collision_body_scratch = bodies;
 
         for pair in &result.pairs {
@@ -561,11 +557,7 @@ impl ZombieArenaWorld {
         let mut bodies = std::mem::take(&mut self.collision_body_scratch);
         self.fill_collision_bodies(&mut bodies);
         let body_count = bodies.len();
-        let result = run_algorithm(
-            self.algorithm,
-            self.broad_phase_config(body_count),
-            &bodies,
-        );
+        let result = run_algorithm(self.algorithm, self.broad_phase_config(body_count), &bodies);
         self.metrics.possible_pairs = possible_pair_count(body_count);
         self.collision_body_scratch = bodies;
         self.metrics.aabb_tests = result.stats.aabb_tests;
