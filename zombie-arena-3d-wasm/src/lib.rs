@@ -743,7 +743,7 @@ impl ZombieArena3dWorld {
 
     fn fill_collision_bodies(&self, bodies: &mut Vec<Body>) {
         bodies.clear();
-        bodies.reserve(1 + self.zombies.len() + self.walls.len() - bodies.capacity().min(1 + self.zombies.len() + self.walls.len()));
+        bodies.reserve(1 + self.zombies.len() + self.walls.len());
         bodies.push(Body {
             id: PLAYER_ID,
             aabb: actor_aabb(self.player.position, PLAYER_HALF),
