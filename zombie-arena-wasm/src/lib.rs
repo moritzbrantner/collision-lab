@@ -94,6 +94,9 @@ pub struct ZombieArenaWorld {
     zombies: Vec<Zombie>,
     walls: Vec<Wall>,
     bullets: Vec<Bullet>,
+    bullet_survivor_scratch: Vec<Bullet>,
+    collision_body_scratch: Vec<Body>,
+    barricade_damage_scratch: Vec<f32>,
     sweeps: Vec<SweepDebug>,
     metrics: FrameMetrics,
     next_wall_id: u32,
@@ -165,6 +168,9 @@ impl ZombieArenaWorld {
             zombies: Vec::new(),
             walls: arena_walls(),
             bullets: Vec::new(),
+            bullet_survivor_scratch: Vec::new(),
+            collision_body_scratch: Vec::new(),
+            barricade_damage_scratch: Vec::new(),
             sweeps: Vec::new(),
             metrics: FrameMetrics::default(),
             next_wall_id: 500,
@@ -263,10 +269,11 @@ impl ZombieArenaWorld {
     }
 
     fn step_bullets(&mut self) {
-        let bullets = std::mem::take(&mut self.bullets);
-        let mut survivors = Vec::with_capacity(bullets.len());
+        let mut bullets = std::mem::take(&mut self.bullets);
+        let mut survivors = std::mem::take(&mut self.bullet_survivor_scratch);
+        survivors.clear();
 
-        for mut bullet in bullets {
+        for mut bullet in bullets.drain(..) {
             bullet.ttl -= FIXED_DT;
             if bullet.ttl <= 0.0 {
                 continue;
@@ -349,16 +356,20 @@ impl ZombieArenaWorld {
         self.kills = self
             .kills
             .saturating_add(u32::try_from(before - self.zombies.len()).unwrap_or(u32::MAX));
+        self.bullet_survivor_scratch = bullets;
         self.bullets = survivors;
     }
 
     fn resolve_actor_overlaps(&mut self) {
-        let bodies = self.collision_bodies();
+        let mut bodies = std::mem::take(&mut self.collision_body_scratch);
+        self.fill_collision_bodies(&mut bodies);
+        let body_count = bodies.len();
         let result = run_algorithm(
             self.algorithm,
-            self.broad_phase_config(bodies.len()),
+            self.broad_phase_config(body_count),
             &bodies,
         );
+        self.collision_body_scratch = bodies;
 
         for pair in &result.pairs {
             let player_zombie = if pair.a == PLAYER_ID {
@@ -383,7 +394,7 @@ impl ZombieArenaWorld {
             }
         }
 
-        self.metrics.possible_pairs = possible_pair_count(bodies.len());
+        self.metrics.possible_pairs = possible_pair_count(body_count);
         self.metrics.aabb_tests = result.stats.aabb_tests;
         self.metrics.occupied_cells = result.stats.occupied_cells.unwrap_or(0);
         self.metrics.overlaps = result.pairs.len();
@@ -429,7 +440,9 @@ impl ZombieArenaWorld {
     }
 
     fn attack_barricades(&mut self) {
-        let mut damage = vec![0.0_f32; self.walls.len()];
+        let mut damage = std::mem::take(&mut self.barricade_damage_scratch);
+        damage.clear();
+        damage.resize(self.walls.len(), 0.0);
         for zombie in &self.zombies {
             let probe = expanded(actor_aabb(zombie.position, ZOMBIE_HALF), 0.12);
             for (index, wall) in self.walls.iter().enumerate() {
@@ -439,7 +452,7 @@ impl ZombieArenaWorld {
             }
         }
 
-        for (wall, amount) in self.walls.iter_mut().zip(damage) {
+        for (wall, amount) in self.walls.iter_mut().zip(damage.iter().copied()) {
             if wall.destructible {
                 wall.health -= amount;
             }
@@ -449,6 +462,7 @@ impl ZombieArenaWorld {
             .retain(|wall| !wall.destructible || wall.health > 0.0);
         self.metrics.destroyed_barricades =
             u32::try_from(before - self.walls.len()).unwrap_or(u32::MAX);
+        self.barricade_damage_scratch = damage;
     }
 
     fn build_at(&mut self, world: [f32; 2]) -> bool {
@@ -514,8 +528,9 @@ impl ZombieArenaWorld {
         self.zombies.iter().position(|zombie| zombie.id == id)
     }
 
-    fn collision_bodies(&self) -> Vec<Body> {
-        let mut bodies = Vec::with_capacity(1 + self.zombies.len() + self.walls.len());
+    fn fill_collision_bodies(&self, bodies: &mut Vec<Body>) {
+        bodies.clear();
+        bodies.reserve(1 + self.zombies.len() + self.walls.len());
         bodies.push(Body {
             id: PLAYER_ID,
             aabb: actor_aabb(self.player.position, PLAYER_HALF),
@@ -528,7 +543,6 @@ impl ZombieArenaWorld {
             id: wall.id,
             aabb: wall_aabb(*wall),
         }));
-        bodies
     }
 
     fn broad_phase_config(&self, objects: usize) -> Config {
@@ -544,13 +558,16 @@ impl ZombieArenaWorld {
     }
 
     fn refresh_metrics(&mut self) {
-        let bodies = self.collision_bodies();
+        let mut bodies = std::mem::take(&mut self.collision_body_scratch);
+        self.fill_collision_bodies(&mut bodies);
+        let body_count = bodies.len();
         let result = run_algorithm(
             self.algorithm,
-            self.broad_phase_config(bodies.len()),
+            self.broad_phase_config(body_count),
             &bodies,
         );
-        self.metrics.possible_pairs = possible_pair_count(bodies.len());
+        self.metrics.possible_pairs = possible_pair_count(body_count);
+        self.collision_body_scratch = bodies;
         self.metrics.aabb_tests = result.stats.aabb_tests;
         self.metrics.occupied_cells = result.stats.occupied_cells.unwrap_or(0);
         self.metrics.overlaps = result.pairs.len();
@@ -803,7 +820,8 @@ mod tests {
     #[test]
     fn arena_broad_phases_preserve_pair_set_parity() {
         let arena = ZombieArenaWorld::new_inner(Algorithm::Naive, 42);
-        let bodies = arena.collision_bodies();
+        let mut bodies = Vec::new();
+        arena.fill_collision_bodies(&mut bodies);
         let config = arena.broad_phase_config(bodies.len());
         let reference = run_algorithm(Algorithm::Naive, config, &bodies).pairs;
         for algorithm in Algorithm::ALL {
@@ -836,5 +854,41 @@ mod tests {
         let wall = arena.walls.last().unwrap();
         assert_eq!(wall.position, [2.0, -3.0]);
         assert!(wall.destructible);
+    }
+
+    #[test]
+    fn runtime_buffers_reuse_capacity_after_warmup() {
+        let mut arena = ZombieArenaWorld::new_inner(Algorithm::UniformGrid, 123);
+        arena.fire();
+        arena.step_bullets();
+        arena.resolve_actor_overlaps();
+        arena.attack_barricades();
+        arena.refresh_metrics();
+
+        let body_capacity = arena.collision_body_scratch.capacity();
+        let damage_capacity = arena.barricade_damage_scratch.capacity();
+        let mut bullet_capacities = [
+            arena.bullets.capacity(),
+            arena.bullet_survivor_scratch.capacity(),
+        ];
+        bullet_capacities.sort_unstable();
+
+        arena.step_bullets();
+        arena.resolve_actor_overlaps();
+        arena.attack_barricades();
+        arena.refresh_metrics();
+
+        let mut next_bullet_capacities = [
+            arena.bullets.capacity(),
+            arena.bullet_survivor_scratch.capacity(),
+        ];
+        next_bullet_capacities.sort_unstable();
+
+        assert!(body_capacity > 0);
+        assert!(damage_capacity >= arena.walls.len());
+        assert!(bullet_capacities[1] > 0);
+        assert_eq!(arena.collision_body_scratch.capacity(), body_capacity);
+        assert_eq!(arena.barricade_damage_scratch.capacity(), damage_capacity);
+        assert_eq!(next_bullet_capacities, bullet_capacities);
     }
 }
