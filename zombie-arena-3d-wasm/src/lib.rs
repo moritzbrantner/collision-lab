@@ -147,6 +147,9 @@ pub struct ZombieArena3dWorld {
     blocked_navigation: BTreeSet<Cell>,
     zombie_position_scratch: Vec<[f32; 3]>,
     flow_target_scratch: Vec<Option<[f32; 3]>>,
+    bullet_survivor_scratch: Vec<Bullet>,
+    collision_body_scratch: Vec<Body>,
+    barricade_damage_scratch: Vec<f32>,
     seed: u64,
     rng: SplitMix64,
     player: Player,
@@ -228,6 +231,9 @@ impl ZombieArena3dWorld {
             blocked_navigation: BTreeSet::new(),
             zombie_position_scratch: Vec::new(),
             flow_target_scratch: Vec::new(),
+            bullet_survivor_scratch: Vec::new(),
+            collision_body_scratch: Vec::new(),
+            barricade_damage_scratch: Vec::new(),
             seed,
             rng: SplitMix64::new(seed ^ 0x5A33_445F_4152_454E),
             player: Player {
@@ -477,10 +483,11 @@ impl ZombieArena3dWorld {
     }
 
     fn step_bullets(&mut self) {
-        let bullets = std::mem::take(&mut self.bullets);
-        let mut survivors = Vec::with_capacity(bullets.len());
+        let mut bullets = std::mem::take(&mut self.bullets);
+        let mut survivors = std::mem::take(&mut self.bullet_survivor_scratch);
+        survivors.clear();
 
-        for mut bullet in bullets {
+        for mut bullet in bullets.drain(..) {
             bullet.ttl -= FIXED_DT;
             if bullet.ttl <= 0.0 {
                 continue;
@@ -557,16 +564,19 @@ impl ZombieArena3dWorld {
         self.kills = self
             .kills
             .saturating_add(u32::try_from(before - self.zombies.len()).unwrap_or(u32::MAX));
+        self.bullet_survivor_scratch = bullets;
         self.bullets = survivors;
     }
 
     fn resolve_actor_overlaps(&mut self) {
-        let bodies = self.collision_bodies();
+        let mut bodies = std::mem::take(&mut self.collision_body_scratch);
+        self.fill_collision_bodies(&mut bodies);
         let result = run_algorithm(
             self.algorithm,
             self.broad_phase_config(bodies.len()),
             &bodies,
         );
+        self.collision_body_scratch = bodies;
 
         for pair in &result.pairs {
             let player_zombie = if pair.a == PLAYER_ID {
@@ -597,7 +607,9 @@ impl ZombieArena3dWorld {
             return;
         }
 
-        let mut damage = vec![0.0_f32; self.walls.len()];
+        let mut damage = std::mem::take(&mut self.barricade_damage_scratch);
+        damage.clear();
+        damage.resize(self.walls.len(), 0.0);
         for zombie in &self.zombies {
             let reach = expand_xz(
                 actor_aabb(zombie.position, ZOMBIE_HALF),
@@ -610,7 +622,7 @@ impl ZombieArena3dWorld {
             }
         }
 
-        for (wall, damage) in self.walls.iter_mut().zip(damage) {
+        for (wall, damage) in self.walls.iter_mut().zip(damage.iter().copied()) {
             if wall.destructible && damage > 0.0 {
                 wall.health = (wall.health - damage).max(0.0);
             }
@@ -620,6 +632,7 @@ impl ZombieArena3dWorld {
         self.walls
             .retain(|wall| !wall.destructible || wall.health > 0.0);
         let destroyed = before.saturating_sub(self.walls.len());
+        self.barricade_damage_scratch = damage;
         if destroyed > 0 {
             let destroyed = u64::try_from(destroyed).unwrap_or(u64::MAX);
             self.metrics.destroyed_barricades = destroyed;
@@ -713,21 +726,24 @@ impl ZombieArena3dWorld {
     }
 
     fn refresh_collision_metrics(&mut self) {
-        let bodies = self.collision_bodies();
+        let mut bodies = std::mem::take(&mut self.collision_body_scratch);
+        self.fill_collision_bodies(&mut bodies);
         let result = run_algorithm(
             self.algorithm,
             self.broad_phase_config(bodies.len()),
             &bodies,
         );
         self.metrics.possible_pairs = possible_pair_count(bodies.len());
+        self.collision_body_scratch = bodies;
         self.metrics.aabb_tests = result.stats.aabb_tests;
         self.metrics.occupied_cells = result.stats.occupied_cells.unwrap_or(0);
         self.metrics.overlaps = result.pairs.len();
         self.metrics.overlap_pairs = result.pairs;
     }
 
-    fn collision_bodies(&self) -> Vec<Body> {
-        let mut bodies = Vec::with_capacity(1 + self.zombies.len() + self.walls.len());
+    fn fill_collision_bodies(&self, bodies: &mut Vec<Body>) {
+        bodies.clear();
+        bodies.reserve(1 + self.zombies.len() + self.walls.len() - bodies.capacity().min(1 + self.zombies.len() + self.walls.len()));
         bodies.push(Body {
             id: PLAYER_ID,
             aabb: actor_aabb(self.player.position, PLAYER_HALF),
@@ -740,7 +756,6 @@ impl ZombieArena3dWorld {
             id: wall.id,
             aabb: wall_aabb(*wall),
         }));
-        bodies
     }
 
     fn broad_phase_config(&self, objects: usize) -> Config {
@@ -1357,5 +1372,44 @@ mod tests {
 
         assert_eq!(search.path.first(), Some(&start));
         assert_eq!(search.path.last(), Some(&goal));
+    }
+
+    #[test]
+    fn runtime_buffers_reuse_capacity_after_warmup() {
+        let mut world = ZombieArena3dWorld::new_inner(Algorithm::UniformGrid, 321);
+        world
+            .build_json(8.0, 8.0)
+            .expect("free cell should accept a barricade");
+        world.fire();
+        world.step_bullets();
+        world.resolve_actor_overlaps();
+        world.attack_barricades();
+        world.refresh_collision_metrics();
+
+        let body_capacity = world.collision_body_scratch.capacity();
+        let damage_capacity = world.barricade_damage_scratch.capacity();
+        let mut bullet_capacities = [
+            world.bullets.capacity(),
+            world.bullet_survivor_scratch.capacity(),
+        ];
+        bullet_capacities.sort_unstable();
+
+        world.step_bullets();
+        world.resolve_actor_overlaps();
+        world.attack_barricades();
+        world.refresh_collision_metrics();
+
+        let mut next_bullet_capacities = [
+            world.bullets.capacity(),
+            world.bullet_survivor_scratch.capacity(),
+        ];
+        next_bullet_capacities.sort_unstable();
+
+        assert!(body_capacity > 0);
+        assert!(damage_capacity >= world.walls.len());
+        assert!(bullet_capacities[1] > 0);
+        assert_eq!(world.collision_body_scratch.capacity(), body_capacity);
+        assert_eq!(world.barricade_damage_scratch.capacity(), damage_capacity);
+        assert_eq!(next_bullet_capacities, bullet_capacities);
     }
 }
