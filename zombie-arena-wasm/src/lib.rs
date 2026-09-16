@@ -521,7 +521,9 @@ impl ZombieArenaWorld {
     }
 
     fn zombie_index(&self, id: u32) -> Option<usize> {
-        self.zombies.binary_search_by_key(&id, |zombie| zombie.id).ok()
+        self.zombies
+            .binary_search_by_key(&id, |zombie| zombie.id)
+            .ok()
     }
 
     fn fill_collision_bodies(&self, bodies: &mut Vec<Body>) {
@@ -891,10 +893,7 @@ mod tests {
         let retained_id = arena.zombies[4].id;
         arena.zombies.retain(|zombie| zombie.id != removed_id);
 
-        assert!(arena
-            .zombies
-            .windows(2)
-            .all(|pair| pair[0].id < pair[1].id));
+        assert!(arena.zombies.windows(2).all(|pair| pair[0].id < pair[1].id));
         assert_eq!(arena.zombie_index(removed_id), None);
         let expected = arena
             .zombies
