@@ -144,6 +144,9 @@ pub struct ZombieArena3dWorld {
     algorithm: Algorithm,
     navigation_mode: NavigationMode,
     flow_field: Option<FlowField>,
+    blocked_navigation: BTreeSet<Cell>,
+    zombie_position_scratch: Vec<[f32; 3]>,
+    flow_target_scratch: Vec<Option<[f32; 3]>>,
     seed: u64,
     rng: SplitMix64,
     player: Player,
@@ -164,6 +167,7 @@ pub struct ZombieArena3dWorld {
     path_expanded_total: u64,
     destroyed_barricades_total: u64,
     flow_field_builds_total: u64,
+    navigation_cache_rebuilds_total: u64,
     game_over: bool,
 }
 
@@ -221,6 +225,9 @@ impl ZombieArena3dWorld {
             algorithm,
             navigation_mode: NavigationMode::Astar,
             flow_field: None,
+            blocked_navigation: BTreeSet::new(),
+            zombie_position_scratch: Vec::new(),
+            flow_target_scratch: Vec::new(),
             seed,
             rng: SplitMix64::new(seed ^ 0x5A33_445F_4152_454E),
             player: Player {
@@ -247,8 +254,10 @@ impl ZombieArena3dWorld {
             path_expanded_total: 0,
             destroyed_barricades_total: 0,
             flow_field_builds_total: 0,
+            navigation_cache_rebuilds_total: 0,
             game_over: false,
         };
+        world.invalidate_navigation();
         for _ in 0..INITIAL_ZOMBIES {
             world.spawn_zombie();
         }
@@ -353,49 +362,44 @@ impl ZombieArena3dWorld {
     }
 
     fn step_zombies(&mut self) {
-        let blocked = blocked_navigation_cells(&self.walls);
         let goal = world_to_cell(self.player.position);
-        let walls = self.walls.clone();
-        let positions = self
-            .zombies
-            .iter()
-            .map(|zombie| zombie.position)
-            .collect::<Vec<_>>();
         let frame = self.frame;
+        let walls = &self.walls;
+        let blocked = &self.blocked_navigation;
 
-        let flow_targets = if self.navigation_mode == NavigationMode::FlowField {
+        let mut positions = std::mem::take(&mut self.zombie_position_scratch);
+        positions.clear();
+        positions.extend(self.zombies.iter().map(|zombie| zombie.position));
+
+        let mut flow_targets = std::mem::take(&mut self.flow_target_scratch);
+        flow_targets.clear();
+        if self.navigation_mode == NavigationMode::FlowField {
             if self
                 .flow_field
                 .as_ref()
                 .is_none_or(|field| field.goal != goal)
             {
-                let field = FlowField::build(goal, &blocked, NAV_MIN, NAV_MAX);
+                let field = FlowField::build(goal, blocked, NAV_MIN, NAV_MAX);
                 self.metrics.flow_field_builds = 1;
                 self.metrics.flow_field_expanded = u64::from(field.expanded);
                 self.flow_field_builds_total = self.flow_field_builds_total.saturating_add(1);
                 self.flow_field = Some(field);
             }
             let field = self.flow_field.as_ref().expect("flow field just built");
-            positions
-                .iter()
-                .copied()
-                .map(|position| {
-                    let current = world_to_cell(position);
-                    if current == goal {
-                        Some(self.player.position)
-                    } else {
-                        field.next_cell(current).map(cell_to_world)
-                    }
-                })
-                .collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
+            flow_targets.extend(positions.iter().copied().map(|position| {
+                let current = world_to_cell(position);
+                if current == goal {
+                    Some(self.player.position)
+                } else {
+                    field.next_cell(current).map(cell_to_world)
+                }
+            }));
+        }
 
         for index in 0..self.zombies.len() {
             let start = world_to_cell(positions[index]);
             let avoidance = local_separation(index, &positions);
-            let fallback = nearest_destructible_wall_target(positions[index], &walls)
+            let fallback = nearest_destructible_wall_target(positions[index], walls)
                 .unwrap_or(self.player.position);
 
             let target = match self.navigation_mode {
@@ -406,14 +410,10 @@ impl ZombieArena3dWorld {
                         || zombie.path_cursor >= zombie.path.len();
 
                     if needs_replan {
-                        let mut search_blocked = blocked.clone();
-                        search_blocked.remove(&start);
-                        search_blocked.remove(&goal);
                         self.metrics.path_replans = self.metrics.path_replans.saturating_add(1);
                         self.path_replans_total = self.path_replans_total.saturating_add(1);
 
-                        if let Some(search) = astar(start, goal, &search_blocked, NAV_MIN, NAV_MAX)
-                        {
+                        if let Some(search) = astar(start, goal, blocked, NAV_MIN, NAV_MAX) {
                             self.metrics.path_found = self.metrics.path_found.saturating_add(1);
                             self.metrics.path_expanded = self
                                 .metrics
@@ -468,9 +468,12 @@ impl ZombieArena3dWorld {
                 0.0,
                 direction[1] * ZOMBIE_SPEED * FIXED_DT,
             ];
-            zombie.position = move_with_sliding_3d(zombie.position, ZOMBIE_HALF, delta, &walls);
-            zombie.position[1] = grounded_center_y(zombie.position, ZOMBIE_HALF, &walls);
+            zombie.position = move_with_sliding_3d(zombie.position, ZOMBIE_HALF, delta, walls);
+            zombie.position[1] = grounded_center_y(zombie.position, ZOMBIE_HALF, walls);
         }
+
+        self.zombie_position_scratch = positions;
+        self.flow_target_scratch = flow_targets;
     }
 
     fn step_bullets(&mut self) {
@@ -757,7 +760,6 @@ impl ZombieArena3dWorld {
     }
 
     fn snapshot(&self) -> Result<String, serde_json::Error> {
-        let blocked = blocked_navigation_cells(&self.walls);
         let paths = self
             .zombies
             .iter()
@@ -824,7 +826,7 @@ impl ZombieArena3dWorld {
                     "hitKind": sweep.hit_kind,
                 })).collect::<Vec<_>>(),
                 "navigation": {
-                    "blocked": blocked.iter().map(|cell| [cell.x, cell.z]).collect::<Vec<_>>(),
+                    "blocked": self.blocked_navigation.iter().map(|cell| [cell.x, cell.z]).collect::<Vec<_>>(),
                     "paths": paths,
                     "flowFieldReachable": self.flow_field.as_ref().map_or(0, FlowField::reachable_cells),
                 },
@@ -855,6 +857,7 @@ impl ZombieArena3dWorld {
                 "flowFieldExpanded": self.metrics.flow_field_expanded,
                 "flowFieldFollowers": self.metrics.flow_field_followers,
                 "flowFieldBuildsTotal": self.flow_field_builds_total,
+                "navigationCacheRebuildsTotal": self.navigation_cache_rebuilds_total,
             },
             "gameOver": self.game_over,
         });
@@ -1325,5 +1328,34 @@ mod tests {
         assert!(world.flow_field.is_none());
         world.step_zombies();
         assert_eq!(world.flow_field_builds_total, 2);
+    }
+
+    #[test]
+    fn navigation_cache_and_scratch_buffers_are_reused_without_topology_changes() {
+        let mut world = ZombieArena3dWorld::new_inner(Algorithm::UniformGrid, 123);
+        let rebuilds = world.navigation_cache_rebuilds_total;
+
+        world.step_zombies();
+        let position_ptr = world.zombie_position_scratch.as_ptr();
+        let position_capacity = world.zombie_position_scratch.capacity();
+        let _ = world.snapshot().expect("snapshot should serialize");
+
+        world.step_zombies();
+        let _ = world.snapshot().expect("snapshot should serialize");
+
+        assert_eq!(world.navigation_cache_rebuilds_total, rebuilds);
+        assert_eq!(world.zombie_position_scratch.as_ptr(), position_ptr);
+        assert_eq!(world.zombie_position_scratch.capacity(), position_capacity);
+    }
+
+    #[test]
+    fn astar_accepts_blocked_start_and_goal_without_copying_obstacles() {
+        let start = Cell { x: -2, z: 0 };
+        let goal = Cell { x: 2, z: 0 };
+        let blocked = [start, goal].into_iter().collect::<BTreeSet<_>>();
+        let search = astar(start, goal, &blocked, -4, 4).expect("path should exist");
+
+        assert_eq!(search.path.first(), Some(&start));
+        assert_eq!(search.path.last(), Some(&goal));
     }
 }
