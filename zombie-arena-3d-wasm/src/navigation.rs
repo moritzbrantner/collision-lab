@@ -310,7 +310,8 @@ impl ZombieArena3dWorld {
 
     pub(crate) fn invalidate_navigation(&mut self) {
         self.blocked_navigation = super::blocked_navigation_cells(&self.walls);
-        self.navigation_cache_rebuilds_total = self.navigation_cache_rebuilds_total.saturating_add(1);
+        self.navigation_cache_rebuilds_total =
+            self.navigation_cache_rebuilds_total.saturating_add(1);
         self.flow_field = None;
         for zombie in &mut self.zombies {
             zombie.path.clear();
