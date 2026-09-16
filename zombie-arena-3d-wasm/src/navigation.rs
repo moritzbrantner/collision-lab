@@ -309,6 +309,8 @@ impl ZombieArena3dWorld {
     }
 
     pub(crate) fn invalidate_navigation(&mut self) {
+        self.blocked_navigation = super::blocked_navigation_cells(&self.walls);
+        self.navigation_cache_rebuilds_total = self.navigation_cache_rebuilds_total.saturating_add(1);
         self.flow_field = None;
         for zombie in &mut self.zombies {
             zombie.path.clear();
@@ -428,10 +430,12 @@ mod tests {
         assert!(built.destructible);
         assert_eq!(built.health, BARRICADE_HEALTH);
         assert!(blocked_navigation_cells(&world.walls).contains(&target));
+        assert!(world.blocked_navigation.contains(&target));
 
         world
             .remove_barricade_json(target.x as f32, target.z as f32)
             .expect("built barricade should be removable");
         assert!(!blocked_navigation_cells(&world.walls).contains(&target));
+        assert!(!world.blocked_navigation.contains(&target));
     }
 }
