@@ -6,6 +6,7 @@ import { DynamicAabbExplanation } from "../../components/dynamic-aabb-explanatio
 import { ExplanationMode } from "../../components/explanation-mode";
 import { Obb3SatExplanation } from "../../components/obb3-sat-explanation";
 import { OctreeExplanation } from "../../components/octree-explanation";
+import { PhysicsEngineIntegrationEvidence } from "../../components/physics-engine-integration-evidence";
 import { SatExplanation } from "../../components/sat-explanation";
 import { StaticBvhExplanation } from "../../components/static-bvh-explanation";
 
@@ -111,6 +112,10 @@ export default function ExplainPage() {
 
       <div className="mt-14">
         <CommonPrimitivesExplanation />
+      </div>
+
+      <div className="mt-14">
+        <PhysicsEngineIntegrationEvidence />
       </div>
 
       <section className="mt-14 overflow-hidden rounded-3xl border border-cyan-900/50 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.10),transparent_22rem)] p-6 sm:p-8">
