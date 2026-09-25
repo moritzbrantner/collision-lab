@@ -14,6 +14,7 @@ bvh-trace-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", re
 collision-lab = { path = ".." }
 geometry-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "980091094a9826167a98b96781126595fbea5076" }
 octree-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "980091094a9826167a98b96781126595fbea5076" }
+physics-engine = { git = "https://github.com/moritzbrantner/physics-engine", rev = "44a8f54241f4467867cd483daaa5179d4468ea02" }
 serde_json = "1"
 spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "980091094a9826167a98b96781126595fbea5076" }
 wasm-bindgen = "0.2"
