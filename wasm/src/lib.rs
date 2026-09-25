@@ -1,3 +1,6 @@
+#[cfg(not(test))]
+#[path = "physics_engine.rs"]
+mod physics_engine_evidence;
 mod presets;
 
 use bvh_kernels::{DynamicAabbNodeSnapshot, DynamicAabbTree, DynamicAabbUpdateTrace};
