@@ -54,6 +54,10 @@ All optimized broad phases are differential-tested against the naive reference a
 
 Reusable geometry mechanisms live in `rust-kernels::geometry-kernels`; Collision Lab owns the teaching scenes and visual evidence. Rust-owned EPA penetration depth/normal is the next narrow-phase roadmap slice, followed by contact generation.
 
+## Physics Engine integration
+
+Collision Lab also consumes [`physics-engine`](https://github.com/moritzbrantner/physics-engine) as an external simulation authority for focused engine evidence. The Explanation page executes the engine's public f64 fixed-step API through WASM to inspect its four-shape primitive specialization matrix and a fast-capsule/thin-wedge CCD case. Collision Lab owns the scenarios and presentation only; wedge geometry, primitive dispatch, contact semantics, and CCD stay in Physics Engine rather than being copied into the lab.
+
 ## Website development
 
 The `web/` application is a statically exported Next.js site for GitHub Pages.
