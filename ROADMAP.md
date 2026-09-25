@@ -149,6 +149,10 @@ GJK now has the detailed visual treatment of support queries and simplex evoluti
 
 ## Continuous collision detection
 
+Integrated engine evidence:
+
+- ✅ **Physics Engine capsule → thin-wedge CCD** — Collision Lab runs the public f64 fixed-step engine through WASM and exposes swept-contact/work counters for the same high-speed no-tunneling case covered by Physics Engine. The engine remains authoritative; the lab owns only the scenario and visualization.
+
 After discrete narrow-phase behavior is established:
 
 - ray vs AABB / triangle;
@@ -175,6 +179,8 @@ Future scene work:
 - kinematic bodies only when a concrete lesson or experiment needs them.
 
 ## Physics response — deliberately later
+
+The Physics Engine integration above is a consumer/evidence boundary, not a second solver implementation. Collision Lab should keep response semantics in Physics Engine and use the lab to explain and compare their observable behavior.
 
 Stay at reliable contacts for a substantial period before adding a rigid-body solver.
 
