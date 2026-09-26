@@ -1,0 +1,79 @@
+name: Rapier scenario benchmark
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "benches/rapier_scenarios.rs"
+      - "benches/support/rapier.rs"
+      - "src/**"
+      - ".github/workflows/rapier-benchmark.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rapier-scenarios:
+    name: Native Rapier comparison
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Record environment fingerprint
+        run: |
+          {
+            echo "source=$(git rev-parse HEAD)"
+            rustc -Vv
+            cargo -V
+            uname -a
+            lscpu | grep -E '^(Architecture|CPU\(s\)|Model name|Thread|Core|Socket):'
+          } | tee "$RUNNER_TEMP/rapier-environment.txt"
+
+      - name: Run Rapier scenario matrix
+        run: |
+          set -euo pipefail
+          cargo bench --bench rapier_scenarios -- --objects 3000 --samples 9             | tee "$RUNNER_TEMP/rapier-benchmark.txt"
+
+      - name: Publish benchmark summary
+        if: always()
+        run: |
+          {
+            echo '### Rapier scenario benchmark'
+            echo
+            echo '> Informational wall-clock evidence from a shared GitHub runner. Exact pair parity is the blocking correctness signal.'
+            echo
+            echo '~~~text'
+            sed -n '/Collision Lab native scenario benchmark/,$p' "$RUNNER_TEMP/rapier-benchmark.txt" 2>/dev/null || true
+            echo '~~~'
+            echo
+            echo '<details><summary>Environment fingerprint</summary>'
+            echo
+            echo '~~~text'
+            cat "$RUNNER_TEMP/rapier-environment.txt" 2>/dev/null || true
+            echo '~~~'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rapier-scenario-benchmark-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            ${{ runner.temp }}/rapier-benchmark.txt
+            ${{ runner.temp }}/rapier-environment.txt
+          if-no-files-found: warn
