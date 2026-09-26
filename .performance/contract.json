@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "suite": "collision-lab/acceptance-work-v1",
+  "description": "Collision Lab remains an experiment/acceptance consumer rather than a second physics authority. The contract protects deterministic comparison work and representative browser/navigation experiments while production collision semantics remain in physics-engine.",
+  "scenarios": [
+    {
+      "id": "clustered-broad-phase-3000",
+      "kind": "stress",
+      "description": "Compare broad-phase algorithms on the existing deterministic 3,000-object clustered scene.",
+      "dimensions": {
+        "objects": 3000,
+        "scenario": "clustered",
+        "seed": 42,
+        "cell_size": 2.5,
+        "fat_margin": 0.75,
+        "world_extent": 100,
+        "half_extent": 0.5
+      },
+      "correctnessEvidence": [
+        "all algorithms produce identical candidate pair sets",
+        "deterministic scene seed/configuration"
+      ],
+      "metrics": [
+        {
+          "name": "aabb_tests",
+          "unit": "tests",
+          "direction": "lower",
+          "signal": "operation-count",
+          "blocking": true,
+          "budget": { "relativeRegressionPercent": 5 }
+        },
+        {
+          "name": "candidate_pairs",
+          "unit": "pairs",
+          "direction": "lower",
+          "signal": "operation-count",
+          "blocking": true,
+          "budget": { "relativeRegressionPercent": 0 }
+        },
+        {
+          "name": "elapsed_ms",
+          "unit": "ms",
+          "direction": "lower",
+          "signal": "wall-clock",
+          "blocking": false
+        }
+      ]
+    },
+    {
+      "id": "zombie-navigation-comparison",
+      "kind": "journey",
+      "description": "Browser/WASM comparison of per-agent A* and shared flow-field navigation using the same seeded 3D arena.",
+      "dimensions": {
+        "frames": 600,
+        "seed": 5904189,
+        "broad_phase": "uniform-grid"
+      },
+      "correctnessEvidence": [
+        "same Rust/WASM world and seed",
+        "navigation mode is the only global planning variable"
+      ],
+      "metrics": [
+        {
+          "name": "planning_builds",
+          "unit": "builds",
+          "direction": "lower",
+          "signal": "operation-count",
+          "blocking": false,
+          "notes": "The browser comparison already exposes this deterministic counter; promote it to hosted smoke evidence once the WASM benchmark has a headless runner."
+        },
+        {
+          "name": "expanded_cells",
+          "unit": "cells",
+          "direction": "lower",
+          "signal": "operation-count",
+          "blocking": false,
+          "notes": "Deterministic browser counter; planned headless/Pages evidence boundary."
+        },
+        {
+          "name": "browser_elapsed_ms",
+          "unit": "ms",
+          "direction": "lower",
+          "signal": "wall-clock",
+          "blocking": false
+        }
+      ]
+    }
+  ]
+}
