@@ -31,7 +31,7 @@ fn main() {
 
     println!("Collision Lab native scenario benchmark");
     println!("Rapier {}", rapier3d::VERSION);
-    println!("objects: {} · samples: {}", options.objects, options.samples);
+    println!(\n        "objects: {} · samples: {}",\n        options.objects, options.samples\n    );
     println!(
         "timing scope: scene generation and Rapier collider conversion excluded; acceleration build, collision detection, and pair extraction included"
     );
@@ -61,12 +61,7 @@ fn run_scenario(scenario: Scenario, options: Options) {
     for algorithm in Algorithm::ALL {
         let (elapsed, overlaps) =
             benchmark_collision_lab(algorithm, config, &bodies, &oracle, options.samples);
-        print_row(
-            algorithm.as_str(),
-            overlaps,
-            elapsed,
-            true,
-        );
+        print_row(algorithm.as_str(), overlaps, elapsed, true);
     }
 
     let (elapsed, pairs) = benchmark_rapier(&bodies, options.samples);
