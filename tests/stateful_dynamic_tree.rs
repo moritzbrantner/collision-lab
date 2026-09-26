@@ -59,9 +59,12 @@ fn retained_dynamic_tree_matches_snapshot_oracle_through_motion() {
         }
 
         let bodies = simulation.bodies();
-        assert_eq!(
-            tree.overlapping_pairs(),
-            run_algorithm(Algorithm::Naive, config, &bodies).pairs
+        let retained = tree.overlapping_pairs_result();
+        let naive = run_algorithm(Algorithm::Naive, config, &bodies);
+        assert_eq!(retained.pairs, naive.pairs);
+        assert!(
+            retained.stats.aabb_tests < naive.stats.aabb_tests,
+            "retained dynamic tree should prune exact tests"
         );
     }
 
