@@ -1,4 +1,4 @@
-#[path = "support/rapier.rs"]
+#[path = "support/rapier_retained.rs"]
 mod rapier_reference;
 
 use bvh_kernels::DynamicAabbTree;
