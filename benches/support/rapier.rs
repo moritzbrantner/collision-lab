@@ -126,10 +126,7 @@ fn collect_pairs(narrow_phase: &NarrowPhase, colliders: &ColliderSet) -> Vec<Pai
         .intersection_pairs()
         .filter(|(_, _, intersecting)| *intersecting)
         .map(|(left, right, _)| {
-            Pair::new(
-                collider_id(colliders, left),
-                collider_id(colliders, right),
-            )
+            Pair::new(collider_id(colliders, left), collider_id(colliders, right))
         })
         .collect::<Vec<_>>();
     pairs.sort_unstable();
