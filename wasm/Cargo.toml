@@ -9,12 +9,12 @@ rust-version = "1.85"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-bvh-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "6db98f9414e2e2118e2c147341ec923a5010da41" }
-bvh-trace-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "6db98f9414e2e2118e2c147341ec923a5010da41" }
+bvh-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "47bf14b512840a4e91159ae4ebdebc2708b5bdec" }
+bvh-trace-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "47bf14b512840a4e91159ae4ebdebc2708b5bdec" }
 collision-lab = { path = ".." }
-geometry-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "6db98f9414e2e2118e2c147341ec923a5010da41" }
-octree-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "6db98f9414e2e2118e2c147341ec923a5010da41" }
+geometry-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "47bf14b512840a4e91159ae4ebdebc2708b5bdec" }
+octree-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "47bf14b512840a4e91159ae4ebdebc2708b5bdec" }
 physics-engine = { git = "https://github.com/moritzbrantner/physics-engine", rev = "44a8f54241f4467867cd483daaa5179d4468ea02" }
 serde_json = "1"
-spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "6db98f9414e2e2118e2c147341ec923a5010da41" }
+spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "47bf14b512840a4e91159ae4ebdebc2708b5bdec" }
 wasm-bindgen = "0.2"
