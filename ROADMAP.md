@@ -208,8 +208,8 @@ Possible later topics: mass/inverse mass, impulses, restitution, friction, const
 - Add property tests for geometry invariants.
 - Add adversarial and worst-case workloads.
 - Separate operation counters from wall-clock timing.
-- Benchmark native Rust independently from WASM/browser rendering.
-- Use external libraries such as Rapier as reference oracles where useful without delegating the implementation to them.
+- ✅ Benchmark native Rust independently from WASM/browser rendering; the native Rapier comparison now runs the deterministic uniform and clustered scenarios with median wall-clock timing.
+- ✅ Use Rapier as an external reference without delegating Collision Lab implementation authority to it; exact pair-set parity with the naive oracle is regression-tested.
 
 ## Reuse through `rust-kernels`
 
