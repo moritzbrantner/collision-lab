@@ -153,6 +153,7 @@ fn parse_options(args: impl Iterator<Item = String>) -> Result<Option<Options>, 
                 options.objects = SMOKE_OBJECTS;
                 options.samples = 1;
             }
+            "--bench" => {}
             "-h" | "--help" => {
                 print!("{}", help());
                 return Ok(None);
