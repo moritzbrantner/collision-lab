@@ -110,6 +110,14 @@ cargo bench --bench rapier_scenarios -- --smoke
 
 Scene generation and conversion from Collision Lab AABBs into Rapier colliders are outside the timed region. The timed Rapier sample includes acceleration-structure construction, collision detection, and extraction/canonicalization of the exact overlap pairs.
 
+For retained structures, use the temporal motion benchmark:
+
+```bash
+cargo bench --bench temporal_motion
+```
+
+It precomputes one deterministic clustered 60 Hz motion sequence and then compares a retained Dynamic AABB Tree against rebuilding the dynamic tree, rebuilding a static BVH, Sweep-and-Prune, and a retained Rapier collision pipeline. Initial structure construction and frame generation are excluded from timing. Every measured frame must reproduce the naive pair oracle; the retained tree additionally reports average exact AABB tests and reinsertion count.
+
 ## Architecture
 
 ```text
