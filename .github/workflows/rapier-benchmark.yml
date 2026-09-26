@@ -48,6 +48,13 @@ jobs:
           set -euo pipefail
           cargo bench --bench rapier_scenarios -- --objects 3000 --samples 9             | tee "$RUNNER_TEMP/rapier-benchmark.txt"
 
+      - name: Record dependency lock fingerprint
+        if: always()
+        run: |
+          if [ -f Cargo.lock ]; then
+            echo "cargo_lock_sha256=$(sha256sum Cargo.lock | cut -d' ' -f1)" >> "$RUNNER_TEMP/rapier-environment.txt"
+          fi
+
       - name: Publish benchmark summary
         if: always()
         run: |
@@ -76,4 +83,5 @@ jobs:
           path: |
             ${{ runner.temp }}/rapier-benchmark.txt
             ${{ runner.temp }}/rapier-environment.txt
+            Cargo.lock
           if-no-files-found: warn
