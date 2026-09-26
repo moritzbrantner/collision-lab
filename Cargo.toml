@@ -17,3 +17,7 @@ rapier3d = "0.36.0"
 [[bench]]
 name = "rapier_scenarios"
 harness = false
+
+[[bench]]
+name = "temporal_motion"
+harness = false
