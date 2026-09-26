@@ -84,12 +84,7 @@ fn main() {
     let retained = benchmark_retained_dynamic(config, &initial, &frames, options.samples);
     print_row("dynamic-retained", retained);
 
-    let rebuilt = benchmark_snapshot(
-        Algorithm::DynamicAabbTree,
-        config,
-        &frames,
-        options.samples,
-    );
+    let rebuilt = benchmark_snapshot(Algorithm::DynamicAabbTree, config, &frames, options.samples);
     print_row("dynamic-rebuild", rebuilt);
 
     let static_bvh = benchmark_snapshot(Algorithm::StaticBvh, config, &frames, options.samples);
@@ -222,11 +217,7 @@ fn benchmark_snapshot(
     )
 }
 
-fn benchmark_retained_rapier(
-    initial: &[Body],
-    frames: &[Frame],
-    samples: usize,
-) -> Measurement {
+fn benchmark_retained_rapier(initial: &[Body], frames: &[Frame], samples: usize) -> Measurement {
     let mut timings = Vec::with_capacity(samples * frames.len());
 
     for _ in 0..samples {
