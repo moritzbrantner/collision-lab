@@ -46,7 +46,7 @@ jobs:
       - name: Run Rapier scenario matrix
         run: |
           set -euo pipefail
-          cargo bench --bench rapier_scenarios -- --objects 3000 --samples 9             | tee "$RUNNER_TEMP/rapier-benchmark.txt"
+          cargo bench --locked --bench rapier_scenarios -- --objects 3000 --samples 9             | tee "$RUNNER_TEMP/rapier-benchmark.txt"
 
       - name: Record dependency lock fingerprint
         if: always()
