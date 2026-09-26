@@ -31,7 +31,10 @@ fn main() {
 
     println!("Collision Lab native scenario benchmark");
     println!("Rapier {}", rapier3d::VERSION);
-    println!(\n        "objects: {} · samples: {}",\n        options.objects, options.samples\n    );
+    println!(
+        "objects: {} · samples: {}",
+        options.objects, options.samples
+    );
     println!(
         "timing scope: scene generation and Rapier collider conversion excluded; acceleration build, collision detection, and pair extraction included"
     );
