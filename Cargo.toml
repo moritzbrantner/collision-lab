@@ -3,10 +3,17 @@ name = "collision-lab"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-rust-version = "1.85"
+rust-version = "1.86"
 
 [dependencies]
 bvh-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "980091094a9826167a98b96781126595fbea5076" }
 bvh-trace-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "980091094a9826167a98b96781126595fbea5076" }
 octree-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "980091094a9826167a98b96781126595fbea5076" }
 spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "980091094a9826167a98b96781126595fbea5076" }
+
+[dev-dependencies]
+rapier3d = "0.36.0"
+
+[[bench]]
+name = "rapier_scenarios"
+harness = false

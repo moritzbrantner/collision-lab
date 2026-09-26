@@ -93,6 +93,23 @@ done
 
 Use `--help` for all parameters.
 
+## Benchmark the native scenarios against Rapier
+
+Rapier is an external benchmark/reference, not a Collision Lab algorithm implementation. The native benchmark runs the same deterministic uniform and clustered AABB scenes through every Collision Lab broad phase and Rapier, requires exact overlap-pair parity with the naive oracle, and reports median wall-clock time separately from Collision Lab's algorithmic work counters.
+
+```bash
+cargo bench --bench rapier_scenarios
+```
+
+Use a smaller or larger scene/sample count when needed:
+
+```bash
+cargo bench --bench rapier_scenarios -- --objects 1000 --samples 5
+cargo bench --bench rapier_scenarios -- --smoke
+```
+
+Scene generation and conversion from Collision Lab AABBs into Rapier colliders are outside the timed region. The timed Rapier sample includes acceleration-structure construction, collision detection, and extraction/canonicalization of the exact overlap pairs.
+
 ## Architecture
 
 ```text
