@@ -37,6 +37,8 @@ struct Frame {
 struct Measurement {
     median_frame: Duration,
     p95_frame: Duration,
+    median_update: Option<Duration>,
+    median_query: Option<Duration>,
     aabb_tests_per_frame: Option<u64>,
     reinsertions_per_sample: Option<usize>,
 }
@@ -77,8 +79,14 @@ fn main() {
         "timing scope: deterministic frames and initial structures excluded; each retained frame includes updates + pair query"
     );
     println!(
-        "{:<24} {:>13} {:>13} {:>16} {:>15}",
-        "backend", "median ms", "p95 ms", "avg AABB tests", "reinsertions"
+        "{:<24} {:>11} {:>11} {:>11} {:>11} {:>16} {:>15}",
+        "backend",
+        "median ms",
+        "p95 ms",
+        "update ms",
+        "query ms",
+        "avg AABB tests",
+        "reinsertions"
     );
 
     let retained = benchmark_retained_dynamic(config, &initial, &frames, options.samples);
@@ -134,6 +142,8 @@ fn benchmark_retained_dynamic(
     samples: usize,
 ) -> Measurement {
     let mut timings = Vec::with_capacity(samples * frames.len());
+    let mut update_timings = Vec::with_capacity(samples * frames.len());
+    let mut query_timings = Vec::with_capacity(samples * frames.len());
     let mut expected_tests = None;
     let mut expected_reinsertions = None;
 
@@ -146,12 +156,19 @@ fn benchmark_retained_dynamic(
         let mut sample_tests = 0_u64;
         let mut sample_reinsertions = 0_usize;
         for frame in frames {
-            let started = Instant::now();
+            let frame_started = Instant::now();
+            let update_started = Instant::now();
             for &(_, body) in &frame.moving {
-                sample_reinsertions += usize::from(tree.update(body));
+                if tree.update(body) {
+                    sample_reinsertions += 1;
+                }
             }
+            update_timings.push(update_started.elapsed());
+
+            let query_started = Instant::now();
             let result = black_box(tree.overlapping_pairs_result());
-            timings.push(started.elapsed());
+            query_timings.push(query_started.elapsed());
+            timings.push(frame_started.elapsed());
 
             assert_eq!(
                 result.pairs, frame.oracle,
@@ -174,6 +191,8 @@ fn benchmark_retained_dynamic(
 
     measurement(
         timings,
+        Some(median(update_timings)),
+        Some(median(query_timings)),
         expected_tests.map(|tests| tests / frames.len() as u64),
         expected_reinsertions,
     )
@@ -212,6 +231,8 @@ fn benchmark_snapshot(
 
     measurement(
         timings,
+        None,
+        None,
         expected_tests.map(|tests| tests / frames.len() as u64),
         None,
     )
@@ -233,11 +254,13 @@ fn benchmark_retained_rapier(initial: &[Body], frames: &[Frame], samples: usize)
         }
     }
 
-    measurement(timings, None, None)
+    measurement(timings, None, None, None, None)
 }
 
 fn measurement(
     mut timings: Vec<Duration>,
+    median_update: Option<Duration>,
+    median_query: Option<Duration>,
     aabb_tests_per_frame: Option<u64>,
     reinsertions_per_sample: Option<usize>,
 ) -> Measurement {
@@ -247,9 +270,16 @@ fn measurement(
     Measurement {
         median_frame,
         p95_frame: timings[p95_index],
+        median_update,
+        median_query,
         aabb_tests_per_frame,
         reinsertions_per_sample,
     }
+}
+
+fn median(mut timings: Vec<Duration>) -> Duration {
+    timings.sort_unstable();
+    timings[timings.len() / 2]
 }
 
 fn print_row(label: &str, measurement: Measurement) {
@@ -259,8 +289,14 @@ fn print_row(label: &str, measurement: Measurement) {
     let reinsertions = measurement
         .reinsertions_per_sample
         .map_or_else(|| "n/a".to_owned(), |value| value.to_string());
+    let update = measurement
+        .median_update
+        .map_or_else(|| "n/a".to_owned(), |value| format!("{:.3}", value.as_secs_f64() * 1_000.0));
+    let query = measurement
+        .median_query
+        .map_or_else(|| "n/a".to_owned(), |value| format!("{:.3}", value.as_secs_f64() * 1_000.0));
     println!(
-        "{label:<24} {:>13.3} {:>13.3} {tests:>16} {reinsertions:>15}",
+        "{label:<24} {:>11.3} {:>11.3} {update:>11} {query:>11} {tests:>16} {reinsertions:>15}",
         measurement.median_frame.as_secs_f64() * 1_000.0,
         measurement.p95_frame.as_secs_f64() * 1_000.0,
     );
