@@ -23,16 +23,12 @@ pub fn prepare_scene(bodies: &[Body]) -> PreparedRapierScene {
             (body.aabb.max[2] - body.aabb.min[2]) * 0.5,
         ];
 
-        let collider = ColliderBuilder::cuboid(
-            half_extents[0],
-            half_extents[1],
-            half_extents[2],
-        )
-        .translation(Vector::new(center[0], center[1], center[2]))
-        .active_collision_types(ActiveCollisionTypes::all())
-        .sensor(true)
-        .user_data(u128::from(body.id))
-        .build();
+        let collider = ColliderBuilder::cuboid(half_extents[0], half_extents[1], half_extents[2])
+            .translation(Vector::new(center[0], center[1], center[2]))
+            .active_collision_types(ActiveCollisionTypes::all())
+            .sensor(true)
+            .user_data(u128::from(body.id))
+            .build();
         colliders.insert(collider);
     }
 
