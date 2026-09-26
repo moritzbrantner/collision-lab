@@ -80,13 +80,7 @@ fn main() {
     );
     println!(
         "{:<24} {:>11} {:>11} {:>11} {:>11} {:>16} {:>15}",
-        "backend",
-        "median ms",
-        "p95 ms",
-        "update ms",
-        "query ms",
-        "avg AABB tests",
-        "reinsertions"
+        "backend", "median ms", "p95 ms", "update ms", "query ms", "avg AABB tests", "reinsertions"
     );
 
     let retained = benchmark_retained_dynamic(config, &initial, &frames, options.samples);
@@ -289,12 +283,14 @@ fn print_row(label: &str, measurement: Measurement) {
     let reinsertions = measurement
         .reinsertions_per_sample
         .map_or_else(|| "n/a".to_owned(), |value| value.to_string());
-    let update = measurement
-        .median_update
-        .map_or_else(|| "n/a".to_owned(), |value| format!("{:.3}", value.as_secs_f64() * 1_000.0));
-    let query = measurement
-        .median_query
-        .map_or_else(|| "n/a".to_owned(), |value| format!("{:.3}", value.as_secs_f64() * 1_000.0));
+    let update = measurement.median_update.map_or_else(
+        || "n/a".to_owned(),
+        |value| format!("{:.3}", value.as_secs_f64() * 1_000.0),
+    );
+    let query = measurement.median_query.map_or_else(
+        || "n/a".to_owned(),
+        |value| format!("{:.3}", value.as_secs_f64() * 1_000.0),
+    );
     println!(
         "{label:<24} {:>11.3} {:>11.3} {update:>11} {query:>11} {tests:>16} {reinsertions:>15}",
         measurement.median_frame.as_secs_f64() * 1_000.0,
