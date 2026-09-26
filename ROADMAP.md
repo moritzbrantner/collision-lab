@@ -70,8 +70,9 @@ Implemented baseline:
 
 Next Analysis additions:
 
-- more adversarial workloads, especially fast movers and temporally coherent scenes;
-- structure metrics: tree height, node count, memberships, active-set size, reinsertions;
+- ✅ temporally coherent moving-scene native benchmark comparing retained Dynamic AABB Tree updates with rebuild-based broad phases and retained Rapier, with exact frame-by-frame pair parity;
+- more adversarial workloads, especially fast movers;
+- structure metrics: tree height, node count, memberships, active-set size, and richer reinsertion distributions;
 - parameter sweeps: grid cell size, octree capacity/depth, dynamic-tree fat margin;
 - automatic crossover detection;
 - native Rust benchmark artifacts separate from WASM/browser execution;
