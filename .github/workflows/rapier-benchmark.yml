@@ -5,8 +5,7 @@ on:
     branches: [main]
     paths:
       - "Cargo.toml"
-      - "benches/rapier_scenarios.rs"
-      - "benches/support/rapier.rs"
+      - "benches/**"
       - "src/**"
       - ".github/workflows/rapier-benchmark.yml"
   workflow_dispatch:
@@ -46,7 +45,14 @@ jobs:
       - name: Run Rapier scenario matrix
         run: |
           set -euo pipefail
-          cargo bench --locked --bench rapier_scenarios -- --objects 3000 --samples 9             | tee "$RUNNER_TEMP/rapier-benchmark.txt"
+          cargo bench --locked --bench rapier_scenarios -- --objects 3000 --samples 9 \
+            | tee "$RUNNER_TEMP/rapier-benchmark.txt"
+
+      - name: Run temporal retained-structure matrix
+        run: |
+          set -euo pipefail
+          cargo bench --locked --bench temporal_motion -- --objects 3000 --frames 120 --samples 5 \
+            | tee "$RUNNER_TEMP/temporal-benchmark.txt"
 
       - name: Record dependency lock fingerprint
         if: always()
@@ -67,6 +73,14 @@ jobs:
             sed -n '/Collision Lab native scenario benchmark/,$p' "$RUNNER_TEMP/rapier-benchmark.txt" 2>/dev/null || true
             echo '~~~'
             echo
+            echo '### Temporal retained-structure benchmark'
+            echo
+            echo '> Deterministic frames/setup are outside timing. Shared-runner wall-clock remains informational; pair parity and AABB-test counts are deterministic evidence.'
+            echo
+            echo '~~~text'
+            sed -n '/Collision Lab temporal broad-phase benchmark/,$p' "$RUNNER_TEMP/temporal-benchmark.txt" 2>/dev/null || true
+            echo '~~~'
+            echo
             echo '<details><summary>Environment fingerprint</summary>'
             echo
             echo '~~~text'
@@ -82,6 +96,7 @@ jobs:
           name: rapier-scenario-benchmark-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             ${{ runner.temp }}/rapier-benchmark.txt
+            ${{ runner.temp }}/temporal-benchmark.txt
             ${{ runner.temp }}/rapier-environment.txt
             Cargo.lock
           if-no-files-found: warn
