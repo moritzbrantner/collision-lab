@@ -1,14 +1,23 @@
 import { expect, test, type Locator } from "@playwright/test";
 
 test("blue-noise terrain exposes deterministic mesh contact and regeneration", async ({ page }) => {
-  await page.goto("/scenarios/blue-noise-terrain/?seed=73");
+  await page.goto("/scenarios/blue-noise-terrain/");
 
   const scenario = page.getByRole("application", {
     name: "Blue-noise triangle terrain collision scenario",
   });
   await expect(scenario).toBeVisible();
+  await expect(page).toHaveURL(/seed=73/);
+  await expect(page.getByLabel("Terrain seed")).toHaveValue("73");
   await expect(page.getByText(/8,192 triangles · 84 sites/)).toBeVisible();
   await expect(page.getByText(/Rust triangle \d+ · grounded/)).toBeVisible();
+
+  const generate = page.getByRole("button", { name: "Generate" });
+  await generate.focus();
+  await page.keyboard.press("Space");
+  await page.waitForTimeout(300);
+  await expect(page.getByText(/Rust triangle \d+ · grounded/)).toBeVisible();
+  await generate.evaluate((element) => (element as HTMLElement).blur());
 
   const initialTriangle = await activeTriangle(page.getByText(/8,192 triangles · 84 sites/));
   await page.keyboard.down("d");
@@ -22,7 +31,7 @@ test("blue-noise terrain exposes deterministic mesh contact and regeneration", a
   await expect(page.getByText(/Rust triangle \d+ · airborne/)).toBeVisible();
 
   await page.getByLabel("Terrain seed").fill("91");
-  await page.getByRole("button", { name: "Generate" }).click();
+  await generate.click();
   await expect(page).toHaveURL(/seed=91/);
   await page.getByText("Deterministic generation evidence").click();
   await expect(page.getByText(/minimum wrapped site spacing/)).toBeVisible();

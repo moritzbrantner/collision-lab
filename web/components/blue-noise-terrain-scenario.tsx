@@ -107,7 +107,8 @@ export function BlueNoiseTerrainScenario() {
       .then(() => {
         if (!active) return;
         setWasmReady(true);
-        const requestedSeed = Number(new URL(window.location.href).searchParams.get("seed"));
+        const seedParameter = new URL(window.location.href).searchParams.get("seed");
+        const requestedSeed = seedParameter?.trim() ? Number(seedParameter) : Number.NaN;
         const seed = sanitizeSeed(requestedSeed) ?? DEFAULT_SEED;
         loadTerrain(seed);
       })
@@ -122,12 +123,11 @@ export function BlueNoiseTerrainScenario() {
   }, [loadTerrain]);
 
   useEffect(() => {
-    const isEditable = (target: EventTarget | null) =>
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement;
+    const isInteractive = (target: EventTarget | null) =>
+      target instanceof Element &&
+      target.closest("input, textarea, select, button, a, [contenteditable='true']") !== null;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isEditable(event.target)) return;
+      if (isInteractive(event.target)) return;
       const key = event.key.toLowerCase();
       if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) {
         event.preventDefault();
