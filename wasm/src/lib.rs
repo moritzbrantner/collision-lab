@@ -6,8 +6,9 @@ mod presets;
 use bvh_kernels::{DynamicAabbNodeSnapshot, DynamicAabbTree, DynamicAabbUpdateTrace};
 use bvh_trace_kernels::{StaticBvhNodeSnapshot, trace_static_bvh};
 use collision_lab::{
-    Algorithm, CollisionLayer, Config, InteractionConfig, MotionConfig, MotionKind, Scenario,
-    Simulation, generate_scene, run_algorithm,
+    Algorithm, BlueNoiseTerrainConfig, BlueNoiseTerrainWorld as TerrainWorld, CollisionLayer,
+    Config, InteractionConfig, MotionConfig, MotionKind, Scenario, Simulation, generate_scene,
+    run_algorithm,
 };
 use octree_kernels::{OctreeBroadPhase, OctreeNodeSnapshot};
 use presets::ScenePreset;
@@ -16,6 +17,87 @@ use spatial_kernels::{Aabb, Axis3, Pair, SweepAndPruneBroadPhase, UniformGridBro
 use wasm_bindgen::prelude::*;
 
 const TRACE_PAIR_PREVIEW_LIMIT: usize = 32;
+
+#[wasm_bindgen]
+pub struct BlueNoiseTerrainWorld {
+    world: TerrainWorld,
+}
+
+#[wasm_bindgen]
+impl BlueNoiseTerrainWorld {
+    #[wasm_bindgen(constructor)]
+    pub fn new(seed: u32) -> Result<BlueNoiseTerrainWorld, JsValue> {
+        let world = TerrainWorld::new(BlueNoiseTerrainConfig {
+            seed: u64::from(seed),
+            ..BlueNoiseTerrainConfig::default()
+        })
+        .map_err(|error| JsValue::from_str(&error))?;
+        Ok(Self { world })
+    }
+
+    pub fn terrain_json(&self) -> Result<String, JsValue> {
+        let terrain = self.world.terrain();
+        let config = terrain.config();
+        let stats = terrain.stats();
+        serde_json::to_string(&json!({
+            "seed": config.seed,
+            "gridSize": config.grid_size,
+            "worldHalf": config.world_half,
+            "heightScale": config.height_scale,
+            "sites": terrain.sites().iter().map(|site| {
+                let contact = terrain.contact_at(site.position[0], site.position[1]);
+                json!({
+                    "position": site.position,
+                    "surfaceHeight": contact.height,
+                    "amplitude": site.amplitude,
+                })
+            }).collect::<Vec<_>>(),
+            "vertices": terrain.vertices(),
+            "indices": terrain.indices(),
+            "stats": {
+                "vertices": terrain.vertices().len(),
+                "triangles": terrain.triangle_count(),
+                "blueNoiseSites": terrain.sites().len(),
+                "candidatesPerSite": config.candidates_per_site,
+                "candidateEvaluations": stats.candidate_evaluations,
+                "heightContributions": stats.height_contributions,
+                "minimumSiteDistance": stats.minimum_site_distance,
+            },
+        }))
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
+    pub fn snapshot_json(&self) -> Result<String, JsValue> {
+        terrain_snapshot_json(&self.world)
+    }
+
+    pub fn step_json(&mut self, move_x: f32, move_z: f32, jump: bool) -> Result<String, JsValue> {
+        if !move_x.is_finite() || !move_z.is_finite() {
+            return Err(JsValue::from_str("terrain movement input must be finite"));
+        }
+        self.world.step([move_x, move_z], jump);
+        terrain_snapshot_json(&self.world)
+    }
+}
+
+fn terrain_snapshot_json(world: &TerrainWorld) -> Result<String, JsValue> {
+    let snapshot = world.snapshot();
+    serde_json::to_string(&json!({
+        "frame": snapshot.frame,
+        "position": snapshot.position,
+        "velocityY": snapshot.velocity_y,
+        "grounded": snapshot.grounded,
+        "contact": {
+            "triangle": snapshot.contact.triangle,
+            "height": snapshot.contact.height,
+            "normal": snapshot.contact.normal,
+            "vertices": snapshot.contact.vertices,
+        },
+        "triangleQueries": snapshot.triangle_queries,
+        "totalTriangleQueries": snapshot.total_triangle_queries,
+    }))
+    .map_err(|error| JsValue::from_str(&error.to_string()))
+}
 
 #[derive(Clone, Copy, Debug)]
 struct DynamicUpdateSummary {
