@@ -6,7 +6,8 @@ import initWasm, { DemoWorld } from "../lib/wasm-pkg/collision_wasm";
 
 type Bounds = { min: [number, number, number]; max: [number, number, number] };
 type Body = Bounds & { id: number; motion: "static" | "dynamic" };
-type Snapshot = { frame: number; bodies: Body[] };
+type RetainedWork = { retained: boolean; fullBuilds: number; bodyUpdates: number; reinsertions: number };
+type Snapshot = { frame: number; bodies: Body[]; work: RetainedWork };
 type DynamicNode = {
   index: number;
   bounds: Bounds;
@@ -258,6 +259,8 @@ export function DynamicAabbExplanation() {
             <Metric label="Tree nodes" value={trace.nodeCount} />
             <Metric label="Changed nodes" value={focus.changedNodes.length} />
             <Metric label="Fat margin" value={trace.fatMargin} decimals />
+            <Metric label="Full builds" value={snapshot.work.fullBuilds} />
+            <Metric label="Body updates" value={snapshot.work.bodyUpdates} />
           </dl>
 
           <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
