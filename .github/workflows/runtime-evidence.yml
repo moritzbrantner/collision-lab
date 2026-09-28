@@ -150,7 +150,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       - name: Install runtime-profiler
         run: cargo install --git https://github.com/moritzbrantner/runtime-profiler --rev "$RUNTIME_PROFILER_REV" --locked
