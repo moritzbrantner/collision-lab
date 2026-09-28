@@ -50,6 +50,7 @@ Implemented:
 - real helper geometry for grid structure, sweep plane, dynamic-tree fat bounds/changed nodes, octree subdivisions, and focused static-BVH traversal;
 - pause/step execution traces;
 - exact pair-set verification across broad phases.
+- a playable blue-noise terrain scenario with Rust-owned indexed mesh generation, exact support-triangle queries, contact normals, and deterministic work counters;
 
 Experiment should answer: **What is the algorithm doing in a realistic world, and when does it behave well?**
 
@@ -131,7 +132,7 @@ Current status:
 4. ✅ **Convex support mappings + GJK** — `rust-kernels::geometry-kernels` owns support choices, simplex evolution, termination, and intersection truth; Collision Lab consumes an optional deterministic trace through WASM and projects the evidence into the convex lesson.
 5. 🟡 **EPA penetration depth and collision normal** — the earlier browser teaching prototype demonstrated the idea, but an authoritative reusable Rust result/trace is still needed before Collision Lab should treat penetration data as implemented geometry.
 6. ⬜ **Contact manifolds**.
-7. ⬜ **Triangle/mesh queries accelerated by BVHs**.
+7. 🟡 **Triangle/mesh queries accelerated by BVHs** — the blue-noise terrain scenario now proves exact heightfield support queries against the visible triangle mesh; general body/mesh overlap queries and BVH acceleration remain.
 
 Immediate implementation sequence:
 

@@ -26,7 +26,7 @@ export default function ScenariosPage() {
         </p>
       </div>
 
-      <section className="mt-12 grid gap-6 lg:grid-cols-2">
+      <section className="mt-12 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         <Link
           href="/scenarios/zombie-arena/"
           className="group overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900/35 transition hover:border-zinc-600"
@@ -73,17 +73,28 @@ export default function ScenariosPage() {
           </div>
         </Link>
 
-        <div className="rounded-3xl border border-dashed border-zinc-800 p-7 lg:col-span-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-600">
-            Next slots
-          </p>
-          <h2 className="mt-3 text-2xl font-semibold text-zinc-200">
-            Small scenarios, different collision problems.
-          </h2>
-          <p className="mt-3 max-w-3xl leading-7 text-zinc-500">
-            Future scenarios should exist only when they exercise a meaningfully different combination: vehicle movement, slopes, dense projectile fields, picking/raycasting, or mesh-heavy worlds.
-          </p>
-        </div>
+        <Link
+          href="/scenarios/blue-noise-terrain/"
+          className="group overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900/35 transition hover:border-zinc-600 md:col-span-2 xl:col-span-1"
+        >
+          <div className="relative h-52 overflow-hidden border-b border-zinc-800 bg-zinc-950">
+            <TerrainPreview />
+          </div>
+          <div className="p-6 sm:p-7">
+            <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-600">
+              <span>Triangle mesh</span>
+              <span>·</span>
+              <span>Blue-noise generation</span>
+            </div>
+            <h2 className="mt-3 text-2xl font-semibold text-zinc-100">Blue-noise terrain</h2>
+            <p className="mt-3 leading-7 text-zinc-500">
+              Walk and jump across an irregular indexed surface while inspecting the exact support triangle, contact normal, and deterministic generation work.
+            </p>
+            <span className="mt-5 inline-flex text-sm font-semibold text-zinc-200 transition group-hover:text-white">
+              Explore the terrain →
+            </span>
+          </div>
+        </Link>
       </section>
     </main>
   );
@@ -139,6 +150,44 @@ function ArenaPreview() {
       </g>
       <path d="M405 120 L475 98" stroke="#fde68a" strokeWidth="2" strokeDasharray="7 5" />
       <circle cx="475" cy="98" r="4" fill="#fb7185" />
+    </svg>
+  );
+}
+
+function TerrainPreview() {
+  return (
+    <svg
+      viewBox="0 0 720 300"
+      className="h-full w-full"
+      role="img"
+      aria-label="Triangulated blue-noise terrain preview"
+    >
+      <rect width="720" height="300" fill="#09090b" />
+      <defs>
+        <linearGradient id="terrain-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#7c8b5d" />
+          <stop offset="1" stopColor="#183b38" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M0 244 L0 192 L72 160 L144 181 L216 108 L288 139 L360 67 L432 122 L504 91 L576 150 L648 119 L720 162 L720 300 L0 300 Z"
+        fill="url(#terrain-fill)"
+      />
+      <g fill="none" stroke="#94a3b8" strokeWidth="1" opacity="0.45">
+        <path d="M0 244 L72 160 L144 181 L216 108 L288 139 L360 67 L432 122 L504 91 L576 150 L648 119 L720 162" />
+        <path d="M0 244 L144 181 L288 139 L432 122 L576 150 L720 162" />
+        <path d="M72 160 L216 108 L360 67 L504 91 L648 119" />
+        <path d="M72 160 L144 300 M216 108 L288 300 M360 67 L432 300 M504 91 L576 300 M648 119 L720 300" />
+      </g>
+      <g fill="#fbbf24">
+        <circle cx="104" cy="176" r="5" />
+        <circle cx="235" cy="124" r="5" />
+        <circle cx="381" cy="83" r="5" />
+        <circle cx="521" cy="105" r="5" />
+        <circle cx="634" cy="135" r="5" />
+      </g>
+      <path d="M360 67 L432 122 L360 154 Z" fill="#22d3ee" fillOpacity="0.5" stroke="#67e8f9" strokeWidth="3" />
+      <circle cx="390" cy="67" r="13" fill="#0891b2" stroke="#cffafe" strokeWidth="3" />
     </svg>
   );
 }

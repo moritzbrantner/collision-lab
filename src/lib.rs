@@ -9,6 +9,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod terrain;
+
+pub use terrain::{
+    BlueNoiseSite, BlueNoiseTerrain, BlueNoiseTerrainConfig, BlueNoiseTerrainWorld, TerrainContact,
+    TerrainGenerationStats, TerrainWalkerSnapshot,
+};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Scenario {
     Uniform,

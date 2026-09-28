@@ -30,6 +30,12 @@ The web layer does not reimplement collision decisions. It obtains overlap resul
 
 Explanation teaches **why** an algorithm works. Experiment explores **when** it works well. Analysis measures **how much work** it performs. Compute asks **where that work should execute**.
 
+## Playable scenarios
+
+- **Zombie Arena** combines broad-phase selection, projectile sweeps, and buildable obstacles in a top-down workload.
+- **Zombie Arena 3D** adds vertical movement, A* and flow-field navigation, and 3D projectile CCD.
+- **Blue-noise terrain** generates a deterministic indexed heightfield from best-candidate blue-noise sites. Rust owns the mesh, exact support-triangle query, contact normal, and walker state; Three.js renders that evidence.
+
 ## Current broad phases
 
 - **naive** — checks every unique object pair and serves as the correctness oracle
