@@ -771,7 +771,9 @@ impl ZombieArena3dWorld {
     }
 
     fn zombie_index(&self, id: u32) -> Option<usize> {
-        self.zombies.iter().position(|zombie| zombie.id == id)
+        self.zombies
+            .binary_search_by_key(&id, |zombie| zombie.id)
+            .ok()
     }
 
     fn snapshot(&self) -> Result<String, serde_json::Error> {
@@ -1411,5 +1413,22 @@ mod tests {
         assert_eq!(world.collision_body_scratch.capacity(), body_capacity);
         assert_eq!(world.barricade_damage_scratch.capacity(), damage_capacity);
         assert_eq!(next_bullet_capacities, bullet_capacities);
+    }
+
+    #[test]
+    fn zombie_id_lookup_remains_correct_with_gaps() {
+        let mut world = ZombieArena3dWorld::new_inner(Algorithm::UniformGrid, 456);
+        let removed_id = world.zombies[3].id;
+        let retained_id = world.zombies[4].id;
+        world.zombies.retain(|zombie| zombie.id != removed_id);
+
+        assert!(world.zombies.windows(2).all(|pair| pair[0].id < pair[1].id));
+        assert_eq!(world.zombie_index(removed_id), None);
+        let expected = world
+            .zombies
+            .iter()
+            .position(|zombie| zombie.id == retained_id)
+            .expect("retained zombie should exist");
+        assert_eq!(world.zombie_index(retained_id), Some(expected));
     }
 }
