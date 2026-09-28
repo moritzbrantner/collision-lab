@@ -3,12 +3,12 @@
 mod physics_engine_evidence;
 mod presets;
 
-use bvh_kernels::{DynamicAabbNodeSnapshot, DynamicAabbTree, DynamicAabbUpdateTrace};
+use bvh_kernels::DynamicAabbNodeSnapshot;
 use bvh_trace_kernels::{StaticBvhNodeSnapshot, trace_static_bvh};
 use collision_lab::{
     Algorithm, BlueNoiseTerrainConfig, BlueNoiseTerrainWorld as TerrainWorld, CollisionLayer,
-    Config, InteractionConfig, MotionConfig, MotionKind, Scenario, Simulation, generate_scene,
-    run_algorithm,
+    Config, InteractionConfig, InteractionWork, MotionConfig, RetainedSyncTrace, Scenario,
+    Simulation, generate_scene, run_algorithm,
 };
 use octree_kernels::{OctreeBroadPhase, OctreeNodeSnapshot};
 use presets::ScenePreset;
@@ -99,25 +99,10 @@ fn terrain_snapshot_json(world: &TerrainWorld) -> Result<String, JsValue> {
     .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 
-#[derive(Clone, Copy, Debug)]
-struct DynamicUpdateSummary {
-    id: u32,
-    reinserted: bool,
-    previous_fat_bounds: Aabb,
-    current_fat_bounds: Aabb,
-}
-
-#[derive(Clone, Debug, Default)]
-struct DynamicFrameTrace {
-    updates: Vec<DynamicUpdateSummary>,
-    focus: Option<DynamicAabbUpdateTrace>,
-}
-
 #[wasm_bindgen]
 pub struct DemoWorld {
     simulation: Simulation,
-    dynamic_tree: DynamicAabbTree,
-    dynamic_trace: DynamicFrameTrace,
+    dynamic_trace: RetainedSyncTrace,
 }
 
 #[wasm_bindgen]
@@ -157,20 +142,16 @@ impl DemoWorld {
             .validate()
             .map_err(|error| JsValue::from_str(&error))?;
         let simulation = Simulation::new(config, motion, interaction);
-        let mut dynamic_tree = DynamicAabbTree::new(config.fat_margin);
-        for body in simulation.bodies() {
-            dynamic_tree.insert(body);
-        }
 
         Ok(Self {
             simulation,
-            dynamic_tree,
-            dynamic_trace: DynamicFrameTrace::default(),
+            dynamic_trace: RetainedSyncTrace::default(),
         })
     }
 
-    pub fn snapshot_json(&self, algorithm: &str) -> Result<String, JsValue> {
-        snapshot_json(&self.simulation, algorithm)
+    pub fn snapshot_json(&mut self, algorithm: &str) -> Result<String, JsValue> {
+        let algorithm = Algorithm::parse(algorithm).map_err(|error| JsValue::from_str(&error))?;
+        snapshot_json(&mut self.simulation, algorithm, InteractionWork::default())
     }
 
     pub fn naive_overlap_count(&self) -> Result<u32, JsValue> {
@@ -194,12 +175,27 @@ impl DemoWorld {
     }
 
     pub fn step_json(&mut self, algorithm: &str, dt_seconds: f32) -> Result<String, JsValue> {
+        let algorithm = Algorithm::parse(algorithm).map_err(|error| JsValue::from_str(&error))?;
+        let dynamic = algorithm == Algorithm::DynamicAabbTree;
+        let mut sync_work = InteractionWork::default();
+        if dynamic && self.simulation.retained_dynamic_tree().is_none() {
+            // Build before stepping so this frame's motion is recorded as
+            // retained updates rather than folded into the initial build.
+            sync_work.accumulate(self.simulation.sync_retained_dynamic_tree_traced().work);
+        }
         self.simulation.step(dt_seconds);
-        self.update_dynamic_tree();
-        snapshot_json(&self.simulation, algorithm)
+        // The dynamic-tree scenario synchronizes the simulation's retained tree
+        // through the traced path so the inspector sees the same updates the
+        // interaction query relies on. Other algorithms leave retained state
+        // untouched; pending bounds changes are applied if it is selected again.
+        if dynamic {
+            self.dynamic_trace = self.simulation.sync_retained_dynamic_tree_traced();
+            sync_work.accumulate(self.dynamic_trace.work);
+        }
+        snapshot_json(&mut self.simulation, algorithm, sync_work)
     }
 
-    pub fn trace_json(&self, algorithm: &str) -> Result<String, JsValue> {
+    pub fn trace_json(&mut self, algorithm: &str) -> Result<String, JsValue> {
         let algorithm = Algorithm::parse(algorithm).map_err(|error| JsValue::from_str(&error))?;
         if algorithm == Algorithm::DynamicAabbTree {
             dynamic_tree_trace_json(self)
@@ -226,61 +222,6 @@ impl DemoWorld {
     }
 }
 
-impl DemoWorld {
-    fn update_dynamic_tree(&mut self) {
-        let moving_bodies: Vec<_> = self
-            .simulation
-            .entities()
-            .iter()
-            .filter(|entity| entity.motion == MotionKind::Dynamic)
-            .map(|entity| entity.body)
-            .collect();
-
-        let focus_id = moving_bodies
-            .iter()
-            .find(|body| {
-                self.dynamic_tree
-                    .fat_bounds(body.id)
-                    .is_some_and(|fat| !fat.contains(body.aabb))
-            })
-            .map(|body| body.id)
-            .or_else(|| moving_bodies.first().map(|body| body.id));
-
-        let mut updates = Vec::with_capacity(moving_bodies.len());
-        let mut focus = None;
-        for body in moving_bodies {
-            let previous_fat_bounds = self
-                .dynamic_tree
-                .fat_bounds(body.id)
-                .expect("simulation body must exist in retained dynamic tree");
-            if focus_id == Some(body.id) {
-                let trace = self.dynamic_tree.update_with_trace(body);
-                updates.push(DynamicUpdateSummary {
-                    id: body.id,
-                    reinserted: trace.reinserted,
-                    previous_fat_bounds: trace.previous_fat_bounds,
-                    current_fat_bounds: trace.current_fat_bounds,
-                });
-                focus = Some(trace);
-            } else {
-                let reinserted = self.dynamic_tree.update(body);
-                let current_fat_bounds = self
-                    .dynamic_tree
-                    .fat_bounds(body.id)
-                    .expect("updated simulation body must remain in retained dynamic tree");
-                updates.push(DynamicUpdateSummary {
-                    id: body.id,
-                    reinserted,
-                    previous_fat_bounds,
-                    current_fat_bounds,
-                });
-            }
-        }
-
-        self.dynamic_trace = DynamicFrameTrace { updates, focus };
-    }
-}
-
 #[wasm_bindgen]
 pub fn run_demo_json(
     algorithm: &str,
@@ -292,7 +233,7 @@ pub fn run_demo_json(
     world_extent: f32,
     half_extent: f32,
 ) -> Result<String, JsValue> {
-    let world = DemoWorld::new(
+    let mut world = DemoWorld::new(
         scenario,
         objects,
         cell_size,
@@ -386,10 +327,16 @@ fn preset_config_json(preset: ScenePreset, objects: usize) -> Value {
     })
 }
 
-fn snapshot_json(simulation: &Simulation, algorithm: &str) -> Result<String, JsValue> {
-    let algorithm = Algorithm::parse(algorithm).map_err(|error| JsValue::from_str(&error))?;
+fn snapshot_json(
+    simulation: &mut Simulation,
+    algorithm: Algorithm,
+    sync_work: InteractionWork,
+) -> Result<String, JsValue> {
     let config = simulation.config();
     let interaction_result = simulation.interactions(algorithm);
+    let mut work = sync_work;
+    work.accumulate(interaction_result.work);
+    let simulation = &*simulation;
     let possible_pairs =
         (config.objects as u64).saturating_mul(config.objects.saturating_sub(1) as u64) / 2;
     let (static_count, dynamic_count) = simulation.counts();
@@ -442,6 +389,13 @@ fn snapshot_json(simulation: &Simulation, algorithm: &str) -> Result<String, JsV
             "filteredOut": interaction_result.filtered_out,
             "interactionPairs": interaction_result.pairs.len(),
             "sensorPairs": interaction_result.sensor_pairs.len(),
+        },
+        "work": {
+            "retained": work.retained,
+            "fullBuilds": work.full_builds,
+            "bodyUpdates": work.body_updates,
+            "reinsertions": work.reinsertions,
+            "bodiesMaterialized": work.bodies_materialized,
         },
         "interactionMatrix": matrix_json(simulation),
         "possiblePairs": possible_pairs,
@@ -599,11 +553,21 @@ fn trace_json(simulation: &Simulation, algorithm: Algorithm) -> Result<String, J
     serde_json::to_string(&value).map_err(|error| JsValue::from_str(&error.to_string()))
 }
 
-fn dynamic_tree_trace_json(world: &DemoWorld) -> Result<String, JsValue> {
+fn dynamic_tree_trace_json(world: &mut DemoWorld) -> Result<String, JsValue> {
+    if world.simulation.retained_dynamic_tree().is_none()
+        || world.simulation.pending_retained_updates() > 0
+    {
+        world.dynamic_trace = world.simulation.sync_retained_dynamic_tree_traced();
+    }
+    let world = &*world;
     let config = world.simulation.config();
-    let nodes = world.dynamic_tree.debug_nodes();
+    let tree = world
+        .simulation
+        .retained_dynamic_tree()
+        .expect("synchronization keeps retained state");
+    let nodes = tree.debug_nodes();
     let current_bodies = world.simulation.bodies();
-    let retained_pairs = world.dynamic_tree.overlapping_pairs();
+    let retained_pairs = tree.overlapping_pairs();
     let snapshot_pairs = run_algorithm(Algorithm::DynamicAabbTree, config, &current_bodies).pairs;
     let reinsertion_count = world
         .dynamic_trace
@@ -644,8 +608,8 @@ fn dynamic_tree_trace_json(world: &DemoWorld) -> Result<String, JsValue> {
         "kind": "dynamic-aabb-tree",
         "frame": world.simulation.frame(),
         "fatMargin": config.fat_margin,
-        "height": world.dynamic_tree.height(),
-        "nodeCount": world.dynamic_tree.node_count(),
+        "height": tree.height(),
+        "nodeCount": tree.node_count(),
         "reinsertionCount": reinsertion_count,
         "containedCount": contained_count,
         "pairParity": retained_pairs == snapshot_pairs,
@@ -707,4 +671,51 @@ fn pair_preview(pairs: &[Pair]) -> Vec<Value> {
         .take(TRACE_PAIR_PREVIEW_LIMIT)
         .map(|pair| json!([pair.a, pair.b]))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DT: f32 = 1.0 / 30.0;
+
+    fn dynamic_demo() -> DemoWorld {
+        DemoWorld::new("uniform", 6, 4.0, 1.25, 1703, 8.0, 0.7, 1.0, 6.0, 0.0)
+            .expect("valid demo configuration")
+    }
+
+    fn parse(json: &str) -> Value {
+        serde_json::from_str(json).expect("valid JSON")
+    }
+
+    #[test]
+    fn first_dynamic_step_uses_retained_updates_with_a_focus() {
+        let mut world = dynamic_demo();
+        let snapshot = parse(&world.step_json("dynamic-aabb-tree", DT).unwrap());
+        assert_eq!(snapshot["work"]["retained"], true);
+        assert_eq!(snapshot["work"]["fullBuilds"], 1);
+        assert_eq!(snapshot["work"]["bodyUpdates"], 6);
+        assert_eq!(snapshot["work"]["bodiesMaterialized"], 0);
+
+        let trace = parse(&world.trace_json("dynamic-aabb-tree").unwrap());
+        assert!(trace["focus"].is_object());
+        assert_eq!(trace["pairParity"], true);
+
+        for _ in 0..30 {
+            let snapshot = parse(&world.step_json("dynamic-aabb-tree", DT).unwrap());
+            assert_eq!(snapshot["work"]["fullBuilds"], 0);
+            assert_eq!(snapshot["work"]["bodyUpdates"], 6);
+            let trace = parse(&world.trace_json("dynamic-aabb-tree").unwrap());
+            assert_eq!(trace["pairParity"], true);
+        }
+    }
+
+    #[test]
+    fn other_algorithms_rebuild_without_touching_retained_state() {
+        let mut world = dynamic_demo();
+        let snapshot = parse(&world.step_json("sweep-and-prune", DT).unwrap());
+        assert_eq!(snapshot["work"]["retained"], false);
+        assert_eq!(snapshot["work"]["fullBuilds"], 1);
+        assert!(world.simulation.retained_dynamic_tree().is_none());
+    }
 }

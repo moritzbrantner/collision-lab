@@ -47,6 +47,8 @@ Explanation teaches **why** an algorithm works. Experiment explores **when** it 
 
 All optimized broad phases are differential-tested against the naive reference and must return the exact same deterministic set of overlapping AABB pairs.
 
+`Simulation::interactions` keeps the dynamic AABB tree alive across frames: `Simulation::step` records which bodies changed bounds, and the next query applies only those updates to the retained `rust-kernels` tree. Every other broad phase rebuilds from a snapshot, and `Simulation::rebuild_interactions` keeps the rebuild path available as a comparison/oracle for every algorithm. Each `InteractionResult` reports deterministic `work` counters (full builds, body updates, reinsertions, materialized bodies), and `tests/retained_broad_phase.rs` compares the retained path frame by frame against an independent all-pairs oracle while ratcheting those counters.
+
 ## Current narrow phases
 
 - **sphere ↔ sphere** — exact squared-center-distance test

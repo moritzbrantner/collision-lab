@@ -1,4 +1,6 @@
-use bvh_kernels::{DynamicAabbTreeBroadPhase, StaticBvhBroadPhase};
+use bvh_kernels::{
+    DynamicAabbTree, DynamicAabbTreeBroadPhase, DynamicAabbUpdateTrace, StaticBvhBroadPhase,
+};
 use octree_kernels::OctreeBroadPhase;
 use spatial_kernels::{
     Aabb, Body, BroadPhase, BroadPhaseResult, ColliderId, NaiveBroadPhase, Pair,
@@ -323,6 +325,97 @@ pub struct Simulation {
     interaction_matrix: InteractionMatrix,
     entities: Vec<SceneEntity>,
     frame: u64,
+    retained: Option<RetainedBroadPhase>,
+    retained_stats: RetainedBroadPhaseStats,
+}
+
+/// Broad-phase state kept alive across simulation frames. The index itself is
+/// the `rust-kernels` dynamic AABB tree; the simulation only records which
+/// entities changed bounds so the next query can apply exactly those updates.
+#[derive(Clone, Debug)]
+struct RetainedBroadPhase {
+    tree: DynamicAabbTree,
+    pending: Vec<usize>,
+    pending_mask: Vec<bool>,
+}
+
+impl RetainedBroadPhase {
+    fn build(fat_margin: f32, entities: &[SceneEntity]) -> Self {
+        let mut tree = DynamicAabbTree::new(fat_margin);
+        for entity in entities {
+            tree.insert(entity.body);
+        }
+        Self {
+            tree,
+            pending: Vec::new(),
+            pending_mask: vec![false; entities.len()],
+        }
+    }
+
+    fn mark_changed(&mut self, index: usize) {
+        if !self.pending_mask[index] {
+            self.pending_mask[index] = true;
+            self.pending.push(index);
+        }
+    }
+}
+
+/// Cumulative retained broad-phase work since the simulation was created.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RetainedBroadPhaseStats {
+    /// Full index builds from the complete body set.
+    pub full_builds: u64,
+    /// Explicit invalidations that discarded retained state.
+    pub invalidations: u64,
+    /// Retained index updates for bodies whose bounds changed.
+    pub body_updates: u64,
+    /// Updates whose body left its fat bounds and had to be reinserted.
+    pub reinsertions: u64,
+}
+
+/// Deterministic architectural work performed to answer one interaction
+/// query. Exact AABB tests stay in `BroadPhaseResult::stats`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct InteractionWork {
+    /// Whether the query was answered from retained broad-phase state.
+    pub retained: bool,
+    /// Full broad-phase index builds from the complete body set.
+    pub full_builds: u64,
+    /// Retained index updates for bodies whose bounds changed.
+    pub body_updates: u64,
+    /// Updates whose body left its fat bounds and had to be reinserted.
+    pub reinsertions: u64,
+    /// Bodies copied out of the scene into a temporary snapshot.
+    pub bodies_materialized: u64,
+}
+
+impl InteractionWork {
+    pub fn accumulate(&mut self, other: Self) {
+        self.retained |= other.retained;
+        self.full_builds += other.full_builds;
+        self.body_updates += other.body_updates;
+        self.reinsertions += other.reinsertions;
+        self.bodies_materialized += other.bodies_materialized;
+    }
+}
+
+/// Per-body summary of one retained update.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RetainedBodyUpdate {
+    pub id: ColliderId,
+    pub reinserted: bool,
+    pub previous_fat_bounds: Aabb,
+    pub current_fat_bounds: Aabb,
+}
+
+/// Debug record of one retained synchronization: every applied update plus a
+/// structural trace for a single focus body. Building it allocates; the normal
+/// query path never does this.
+#[derive(Clone, Debug, Default)]
+pub struct RetainedSyncTrace {
+    pub updates: Vec<RetainedBodyUpdate>,
+    pub focus: Option<DynamicAabbUpdateTrace>,
+    pub work: InteractionWork,
 }
 
 impl Simulation {
@@ -388,7 +481,14 @@ impl Simulation {
                     velocity,
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
+        debug_assert!(
+            entities
+                .iter()
+                .enumerate()
+                .all(|(index, entity)| entity.body.id as usize == index),
+            "generated collider IDs must equal entity indices"
+        );
 
         Self {
             config,
@@ -397,6 +497,8 @@ impl Simulation {
             interaction_matrix,
             entities,
             frame: 0,
+            retained: None,
+            retained_stats: RetainedBroadPhaseStats::default(),
         }
     }
 
@@ -464,14 +566,155 @@ impl Simulation {
         (self.entities.len() - sensors, sensors)
     }
 
+    /// Production interaction query. Algorithms with retained mechanics (the
+    /// dynamic AABB tree) keep their index across frames and apply only the
+    /// bounds changes recorded by [`Self::step`]; every other algorithm
+    /// rebuilds from a snapshot exactly like [`Self::rebuild_interactions`].
+    pub fn interactions(&mut self, algorithm: Algorithm) -> InteractionResult {
+        if algorithm != Algorithm::DynamicAabbTree {
+            return self.rebuild_interactions(algorithm);
+        }
+
+        let work = self.sync_retained(None);
+        let retained = self
+            .retained
+            .as_ref()
+            .expect("synchronization keeps retained state");
+        let broad_phase = retained.tree.overlapping_pairs_result();
+        let entities = &self.entities;
+        let (pairs, sensor_pairs, filtered_out) =
+            filter_pairs(&broad_phase.pairs, &self.interaction_matrix, |id| {
+                &entities[id as usize]
+            });
+
+        InteractionResult {
+            broad_phase,
+            pairs,
+            sensor_pairs,
+            filtered_out,
+            work,
+        }
+    }
+
+    /// Reference path: rebuilds the selected broad phase from a complete body
+    /// snapshot and ignores any retained state.
     #[must_use]
-    pub fn interactions(&self, algorithm: Algorithm) -> InteractionResult {
+    pub fn rebuild_interactions(&self, algorithm: Algorithm) -> InteractionResult {
         run_interactions(
             algorithm,
             self.config,
             &self.entities,
             &self.interaction_matrix,
         )
+    }
+
+    /// Discards retained broad-phase state; the next retained query performs a
+    /// full build. Use this whenever scene identity or configuration changes.
+    pub fn invalidate_retained_broad_phase(&mut self) {
+        if self.retained.take().is_some() {
+            self.retained_stats.invalidations += 1;
+        }
+    }
+
+    #[must_use]
+    pub fn retained_dynamic_tree(&self) -> Option<&DynamicAabbTree> {
+        self.retained.as_ref().map(|retained| &retained.tree)
+    }
+
+    /// Number of bodies whose bounds changed since the retained state was
+    /// last synchronized.
+    #[must_use]
+    pub fn pending_retained_updates(&self) -> usize {
+        self.retained
+            .as_ref()
+            .map_or(0, |retained| retained.pending.len())
+    }
+
+    #[must_use]
+    pub const fn retained_broad_phase_stats(&self) -> RetainedBroadPhaseStats {
+        self.retained_stats
+    }
+
+    /// Applies pending retained updates while recording a debug trace. The
+    /// focus is the first changed body that leaves its fat bounds, falling back
+    /// to the first changed body.
+    pub fn sync_retained_dynamic_tree_traced(&mut self) -> RetainedSyncTrace {
+        let mut trace = RetainedSyncTrace::default();
+        trace.work = self.sync_retained(Some(&mut trace));
+        trace
+    }
+
+    fn sync_retained(&mut self, mut trace: Option<&mut RetainedSyncTrace>) -> InteractionWork {
+        let mut work = InteractionWork {
+            retained: true,
+            ..InteractionWork::default()
+        };
+        let entities = &self.entities;
+        let fat_margin = self.config.fat_margin;
+        let retained = self.retained.get_or_insert_with(|| {
+            work.full_builds = 1;
+            RetainedBroadPhase::build(fat_margin, entities)
+        });
+
+        retained.pending.sort_unstable();
+        let focus_id = trace.as_ref().and_then(|_| {
+            retained
+                .pending
+                .iter()
+                .map(|&index| entities[index].body)
+                .find(|body| {
+                    retained
+                        .tree
+                        .fat_bounds(body.id)
+                        .is_some_and(|fat| !fat.contains(body.aabb))
+                })
+                .or_else(|| retained.pending.first().map(|&index| entities[index].body))
+                .map(|body| body.id)
+        });
+
+        for index in retained.pending.drain(..) {
+            retained.pending_mask[index] = false;
+            let body = entities[index].body;
+            let reinserted = match trace.as_deref_mut() {
+                Some(trace) if focus_id == Some(body.id) => {
+                    let focus = retained.tree.update_with_trace(body);
+                    let reinserted = focus.reinserted;
+                    trace.updates.push(RetainedBodyUpdate {
+                        id: body.id,
+                        reinserted,
+                        previous_fat_bounds: focus.previous_fat_bounds,
+                        current_fat_bounds: focus.current_fat_bounds,
+                    });
+                    trace.focus = Some(focus);
+                    reinserted
+                }
+                Some(trace) => {
+                    let previous_fat_bounds = retained
+                        .tree
+                        .fat_bounds(body.id)
+                        .expect("retained tree contains every scene body");
+                    let reinserted = retained.tree.update(body);
+                    trace.updates.push(RetainedBodyUpdate {
+                        id: body.id,
+                        reinserted,
+                        previous_fat_bounds,
+                        current_fat_bounds: retained
+                            .tree
+                            .fat_bounds(body.id)
+                            .expect("retained tree contains every scene body"),
+                    });
+                    reinserted
+                }
+                None => retained.tree.update(body),
+            };
+            work.body_updates += 1;
+            work.reinsertions += u64::from(reinserted);
+        }
+
+        self.retained_stats.full_builds += work.full_builds;
+        self.retained_stats.body_updates += work.body_updates;
+        self.retained_stats.reinsertions += work.reinsertions;
+        work
     }
 
     pub fn step(&mut self, dt_seconds: f32) {
@@ -487,8 +730,10 @@ impl Simulation {
         let min_center = -self.config.world_extent + half;
         let max_center = self.config.world_extent - half;
 
-        for entity in &mut self.entities {
-            if entity.motion == MotionKind::Static {
+        for (index, entity) in self.entities.iter_mut().enumerate() {
+            // Re-deriving bounds from the center would introduce rounding
+            // drift, so bodies without velocity keep their exact bounds.
+            if entity.motion == MotionKind::Static || entity.velocity == [0.0; 3] {
                 continue;
             }
 
@@ -503,7 +748,13 @@ impl Simulation {
                     entity.velocity[axis] = -entity.velocity[axis].abs();
                 }
             }
-            entity.body.aabb = Aabb::from_center_half_extents(center, [half; 3]);
+            let aabb = Aabb::from_center_half_extents(center, [half; 3]);
+            if aabb != entity.body.aabb {
+                entity.body.aabb = aabb;
+                if let Some(retained) = &mut self.retained {
+                    retained.mark_changed(index);
+                }
+            }
         }
 
         self.frame = self.frame.saturating_add(1);
@@ -516,6 +767,7 @@ pub struct InteractionResult {
     pub pairs: Vec<Pair>,
     pub sensor_pairs: Vec<Pair>,
     pub filtered_out: usize,
+    pub work: InteractionWork,
 }
 
 #[derive(Clone, Debug)]
@@ -618,17 +870,39 @@ pub fn run_interactions(
         "scene entity collider IDs must be unique"
     );
 
+    let (pairs, sensor_pairs, filtered_out) = filter_pairs(&broad_phase.pairs, matrix, |id| {
+        by_id
+            .get(&id)
+            .expect("broad-phase pair must reference a scene entity")
+    });
+
+    InteractionResult {
+        broad_phase,
+        pairs,
+        sensor_pairs,
+        filtered_out,
+        work: InteractionWork {
+            retained: false,
+            full_builds: 1,
+            body_updates: 0,
+            reinsertions: 0,
+            bodies_materialized: bodies.len() as u64,
+        },
+    }
+}
+
+fn filter_pairs<'a>(
+    candidates: &[Pair],
+    matrix: &InteractionMatrix,
+    entity: impl Fn(ColliderId) -> &'a SceneEntity,
+) -> (Vec<Pair>, Vec<Pair>, usize) {
     let mut pairs = Vec::new();
     let mut sensor_pairs = Vec::new();
     let mut filtered_out = 0;
 
-    for pair in &broad_phase.pairs {
-        let left = by_id
-            .get(&pair.a)
-            .expect("broad-phase pair must reference a scene entity");
-        let right = by_id
-            .get(&pair.b)
-            .expect("broad-phase pair must reference a scene entity");
+    for pair in candidates {
+        let left = entity(pair.a);
+        let right = entity(pair.b);
         if !matrix.allows(left.layer, right.layer) {
             filtered_out += 1;
             continue;
@@ -642,12 +916,7 @@ pub fn run_interactions(
         }
     }
 
-    InteractionResult {
-        broad_phase,
-        pairs,
-        sensor_pairs,
-        filtered_out,
-    }
+    (pairs, sensor_pairs, filtered_out)
 }
 
 #[must_use]
