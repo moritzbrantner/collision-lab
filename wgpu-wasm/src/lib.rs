@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
 
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
@@ -111,13 +111,38 @@ pub struct WgpuRenderer {
 }
 
 #[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console, js_name = error)]
+    fn console_error(message: &str);
+
+    type Error;
+
+    #[wasm_bindgen(constructor)]
+    fn new() -> Error;
+
+    #[wasm_bindgen(structural, method, getter)]
+    fn stack(error: &Error) -> String;
+}
+
+/// Forwards Rust panics to `console.error` together with the JavaScript
+/// stack, replacing the unmaintained `console_error_panic_hook` crate.
+fn install_panic_hook() {
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        std::panic::set_hook(Box::new(|info| {
+            console_error(&format!("{info}\n\nStack:\n\n{}\n\n", Error::new().stack()));
+        }));
+    });
+}
+
+#[wasm_bindgen]
 pub async fn create_renderer(
     canvas: HtmlCanvasElement,
     width: u32,
     height: u32,
     max_instances: u32,
 ) -> Result<WgpuRenderer, JsValue> {
-    console_error_panic_hook::set_once();
+    install_panic_hook();
 
     let width = width.max(1);
     let height = height.max(1);
