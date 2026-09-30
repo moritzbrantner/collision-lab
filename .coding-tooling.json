@@ -11,6 +11,9 @@
   "capabilityCommands": {
     ".": {
       "benchmark:smoke": ["bash", "scripts/profile-broad-phase.sh"]
+    },
+    "web": {
+      "build": ["bun", "run", "build"]
     }
   },
   "merge": {

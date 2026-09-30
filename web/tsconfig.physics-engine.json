@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "incremental": false
+  },
+  "include": [
+    "next-env.d.ts",
+    "app/explain/physics-engine-integration/**/*.ts",
+    "app/explain/physics-engine-integration/**/*.tsx"
+  ]
+}

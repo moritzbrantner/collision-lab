@@ -1,11 +1,17 @@
 use physics_engine::{
     BodyId,
-    approximate::{Body, Config, Report, Shape, Vector as V, World},
+    approximate::{Body, Config, PRIMITIVE_CAPABILITIES_JSON, Report, Shape, Vector as V, World},
 };
 use serde_json::json;
 use wasm_bindgen::prelude::*;
 
-const PHYSICS_ENGINE_REVISION: &str = "44a8f54241f4467867cd483daaa5179d4468ea02";
+const PHYSICS_ENGINE_REVISION: &str = "e0c6be73c9b34efd09220696a4151016b822b5e0";
+
+/// The engine owns this versioned ledger; the consumer does not reclassify capabilities.
+#[wasm_bindgen]
+pub fn physics_engine_capabilities_json() -> String {
+    PRIMITIVE_CAPABILITIES_JSON.to_owned()
+}
 
 #[derive(Clone, Copy)]
 struct PairCase {
@@ -106,6 +112,8 @@ pub fn physics_engine_primitive_matrix_json() -> Result<String, JsValue> {
             "primitiveQueries": geometry.primitive_queries,
             "primitiveAxesTested": geometry.primitive_axes_tested,
             "primitiveVertexTests": geometry.primitive_vertex_tests,
+            "primitiveSegmentDistanceEvaluations": geometry.primitive_segment_distance_evaluations,
+            "primitiveSegmentFeatureTests": geometry.primitive_segment_feature_tests,
             "manifoldCandidates": geometry.manifold_candidates,
         }));
     }
@@ -190,4 +198,57 @@ fn primitive_pair_report(left_shape: Shape, right_shape: Shape) -> Result<Report
     world.add_body(left).map_err(|error| error.to_string())?;
     world.add_body(right).map_err(|error| error.to_string())?;
     world.step(1.0 / 60.0).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provenance_matches_manifest_and_engine_ledger() {
+        let manifest = include_str!("../Cargo.toml");
+        let dependency = manifest
+            .lines()
+            .find(|line| line.starts_with("physics-engine = "));
+        assert!(dependency.is_some_and(|line| line.contains(PHYSICS_ENGINE_REVISION)));
+        assert_eq!(
+            physics_engine_capabilities_json(),
+            PRIMITIVE_CAPABILITIES_JSON
+        );
+        let ledger: serde_json::Value = serde_json::from_str(PRIMITIVE_CAPABILITIES_JSON).unwrap();
+        assert_eq!(ledger["schemaVersion"], 1);
+        assert_eq!(ledger["shapes"].as_array().unwrap().len(), 4);
+        let pairs = ledger["pairs"].as_array().unwrap();
+        assert_eq!(pairs.len(), 10);
+        assert_eq!(ledger["referenceAcceptance"], "partial");
+        assert_eq!(
+            ledger["shapes"][3]["solverDynamicRotation"],
+            "rotation-locked"
+        );
+        assert_eq!(ledger["capabilities"]["rotationCcd"], "unsupported");
+        assert_eq!(
+            pairs
+                .iter()
+                .filter(|pair| pair["referenceAcceptance"] == "capsule-row")
+                .count(),
+            3
+        );
+    }
+
+    #[test]
+    fn real_dispatch_evidence_matches_each_ledger_cell_and_counts_segment_work() {
+        let ledger: serde_json::Value = serde_json::from_str(PRIMITIVE_CAPABILITIES_JSON).unwrap();
+        for (index, case) in pair_cases().into_iter().enumerate() {
+            let pair = &ledger["pairs"][index];
+            assert_eq!(pair["left"], case.left);
+            assert_eq!(pair["right"], case.right);
+            let report = primitive_pair_report(case.left_shape, case.right_shape).unwrap();
+            assert!(report.geometry.specialized_pair_dispatches[index] > 0);
+            assert_eq!(report.geometry.generic_fallback_calls, 0);
+            if pair["referenceAcceptance"] == "capsule-row" {
+                assert!(report.geometry.primitive_segment_distance_evaluations > 0);
+                assert!(report.geometry.primitive_segment_feature_tests > 0);
+            }
+        }
+    }
 }

@@ -6,9 +6,10 @@
     "dev": "next dev",
     "wasm": "wasm-pack build ../wasm --target web --out-dir ../web/lib/wasm-pkg --out-name collision_wasm --release && wasm-pack build ../wgpu-wasm --target web --out-dir ../web/lib/wgpu-wasm-pkg --out-name collision_wgpu_wasm --release && wasm-pack build ../zombie-arena-wasm --target web --out-dir ../web/lib/zombie-arena-wasm-pkg --out-name zombie_arena_wasm --release && wasm-pack build ../zombie-arena-3d-wasm --target web --out-dir ../web/lib/zombie-arena-3d-wasm-pkg --out-name zombie_arena_3d_wasm --release && wasm-pack build ../zombie-arena-character-wasm --target web --out-dir ../web/lib/zombie-arena-character-wasm-pkg --out-name zombie_arena_character_wasm --release",
     "build": "next build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.physics-engine.json",
     "test:e2e": "playwright test",
-    "profile:renderer": "bun scripts/profile-renderer.mjs"
+    "profile:renderer": "bun scripts/profile-renderer.mjs",
+    "test:physics-engine": "bun test app/explain/physics-engine-integration/physics-engine-capabilities.test.mjs"
   },
   "dependencies": {
     "next": "16.3.4",
@@ -27,5 +28,6 @@
     "tailwindcss": "4.3.3",
     "typescript": "5.9.2",
     "wasm-pack": "0.15.0"
-  }
+  },
+  "packageManager": "bun@1.4.2"
 }

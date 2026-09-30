@@ -45,9 +45,10 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.0
-      - run: bun install
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
       - run: bun run wasm
+      - run: bun run test:physics-engine
       - run: bun run typecheck
       - run: bun run build
       - run: bunx playwright install --with-deps chromium
