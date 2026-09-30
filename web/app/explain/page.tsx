@@ -6,7 +6,7 @@ import { DynamicAabbExplanation } from "../../components/dynamic-aabb-explanatio
 import { ExplanationMode } from "../../components/explanation-mode";
 import { Obb3SatExplanation } from "../../components/obb3-sat-explanation";
 import { OctreeExplanation } from "../../components/octree-explanation";
-import { PhysicsEngineIntegrationEvidence } from "../../components/physics-engine-integration-evidence";
+import { PhysicsEngineIntegrationEvidence } from "./physics-engine-integration/physics-engine-integration-evidence";
 import { SatExplanation } from "../../components/sat-explanation";
 import { StaticBvhExplanation } from "../../components/static-bvh-explanation";
 

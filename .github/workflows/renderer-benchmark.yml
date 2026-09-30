@@ -38,12 +38,12 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       - name: Build benchmark surface
         working-directory: web
         run: |
-          bun install
+          bun install --frozen-lockfile
           bun run wasm
           GITHUB_ACTIONS=false bun run build
           bunx playwright install --with-deps chromium

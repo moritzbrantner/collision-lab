@@ -1,0 +1,3 @@
+# Keep dependencies inside the project so Turbopack can resolve them.
+[install]
+linker = "hoisted"

@@ -1,0 +1,11 @@
+# Physics Engine capability evidence
+
+The `/explain/` page consumes `approximate::PRIMITIVE_CAPABILITIES_JSON` from the pinned Physics Engine dependency. Collision Lab exports that artifact unchanged through WASM, validates schema 1 at the presentation boundary, and displays the shape restrictions, common capabilities, validation limits, pair classifications, search modes, reference acceptance, and counter inventory.
+
+The adapter separately executes all ten overlapping pair scenes and a fast capsule crossing a thin wedge. Their dispatch, fallback, segment-distance, segment-feature, and swept-contact counters are actual engine reports. Successful dispatch is not an independent geometric reference proof. The engine currently marks the global matrix partial; capsule-row acceptance covers sphere/capsule, box/capsule, and capsule/capsule. Wedge solver rotation remains locked and angular CCD, chronological secondary-impact response, and shape-cast feature identity remain incomplete.
+
+The source link and evidence revision match the manifest pin. Native tests check that provenance and every dispatched ledger cell. `bun run test:physics-engine` checks the parser using the built WASM artifact, including malformed metadata. `bun run typecheck` also checks the new presentation boundary with the shared strict TypeScript options. The focused browser workflow is `bun run test:e2e e2e/physics-engine-integration.spec.ts`, after `bun run wasm`; it covers actual engine evidence, restrictions, locale/theme persistence, URL sharing, keyboard input, and a narrow viewport.
+
+The new ledger supports English, German, and Spanish. Capability and algorithm names remain verbatim API identifiers. Its light/dark/system appearance uses scoped semantic tokens. The `physics-lang` and `physics-theme` query parameters are shareable; explicit changes persist in browser storage. The surrounding existing lessons retain their current presentation.
+
+Use Bun with the committed lockfile and hoisted installation configuration. Hoisting keeps package paths inside the project for Turbopack. `wasm/Cargo.lock` records the exact engine dependency graph; the WASM adapter requires Rust 1.98 because the adopted engine does.
