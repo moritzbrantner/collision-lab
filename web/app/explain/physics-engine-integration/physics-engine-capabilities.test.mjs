@@ -4,15 +4,15 @@ import {
   initSync,
   physics_engine_capabilities_json,
   physics_engine_primitive_matrix_json,
-} from "../lib/wasm-pkg/collision_wasm.js";
+} from "../../../lib/wasm-pkg/collision_wasm.js";
 import {
   parseCapabilityLedger,
   parseSegmentWork,
-} from "../app/explain/physics-engine-integration/parse-capability-ledger.ts";
+} from "./parse-capability-ledger.ts";
 
 initSync({
   module: readFileSync(
-    new URL("../lib/wasm-pkg/collision_wasm_bg.wasm", import.meta.url),
+    new URL("../../../lib/wasm-pkg/collision_wasm_bg.wasm", import.meta.url),
   ),
 });
 
