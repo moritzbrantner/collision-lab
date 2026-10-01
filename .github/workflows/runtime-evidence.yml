@@ -18,7 +18,7 @@ env:
 jobs:
   broad-phase-evidence:
     name: Broad-phase runtime evidence and behavior
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Check out exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -132,7 +132,7 @@ jobs:
 
   renderer-evidence:
     name: Three.js versus WASM wgpu runtime evidence
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Check out exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
