@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex, Once};
 
 use bytemuck::{Pod, Zeroable};
-use glam::{Mat4, Vec3};
+use glam::Vec3;
+use glam::camera::rh::{proj::directx, view::look_at_mat4};
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 use wgpu::util::DeviceExt;
@@ -570,8 +571,8 @@ fn camera_uniform(width: u32, height: u32) -> CameraUniform {
         WORLD_EXTENT * 1.15,
         WORLD_EXTENT * 1.45,
     );
-    let view = Mat4::look_at_rh(eye, Vec3::ZERO, Vec3::Y);
-    let projection = Mat4::perspective_rh(48.0_f32.to_radians(), aspect, 0.1, 500.0);
+    let view = look_at_mat4(eye, Vec3::ZERO, Vec3::Y);
+    let projection = directx::perspective(48.0_f32.to_radians(), aspect, 0.1, 500.0);
     CameraUniform {
         view_proj: (projection * view).to_cols_array_2d(),
     }
