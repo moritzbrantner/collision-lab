@@ -150,7 +150,7 @@ impl HumanoidAnimator {
             "source": {
                 "geometry": "three-d-core",
                 "animation": "three-d-animation",
-                "revision": "416e3c9cd3bbc2fe6bb258eb1e04cf1245d9346e",
+                "revision": "5340bdf31de6761ed16737dd6d19da2431172fd6",
             },
             "mesh": {
                 "vertices": cube.vertices().iter().map(vec3_array).collect::<Vec<_>>(),
