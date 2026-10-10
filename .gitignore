@@ -2,6 +2,8 @@
 /wasm/target
 /zombie-arena-wasm/target
 /zombie-arena-3d-wasm/target
+/zombie-arena-character-wasm/target
+/wgpu-wasm/target
 /web/node_modules
 /web/.next
 /web/out
