@@ -10,7 +10,8 @@
   "optionalCapabilities": ["test:integration"],
   "capabilityCommands": {
     ".": {
-      "benchmark:smoke": ["bash", "scripts/profile-broad-phase.sh"]
+      "benchmark:smoke": ["bash", "scripts/profile-broad-phase.sh"],
+      "performance:work": ["bash", "scripts/collect-work-evidence.sh"]
     },
     "web": {
       "build": ["bun", "run", "build"]
