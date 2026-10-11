@@ -128,13 +128,13 @@ fn checked_frame(world: &mut ZombieArena3dWorld) -> FrameWork {
         .expect("flow-field mode keeps a field");
     assert_eq!(field.goal, goal, "the field must target the current goal");
     assert_eq!(field.reachable_cells(), oracle.len());
-    if world.metrics.flow_field_builds > 0 {
-        assert_eq!(
-            world.metrics.flow_field_expanded,
-            oracle.len() as u64,
-            "one build expands every reachable cell exactly once"
-        );
-    }
+    // Correctness of the counter, not a work bound: every build expands each
+    // reachable cell exactly once. How many builds happen is the work bound.
+    assert_eq!(
+        world.metrics.flow_field_expanded,
+        world.metrics.flow_field_builds * oracle.len() as u64,
+        "each build expands every reachable cell exactly once"
+    );
 
     let agents = world.zombies.len();
     assert_eq!(world.zombie_position_scratch.len(), agents);
