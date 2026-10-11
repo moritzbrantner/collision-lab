@@ -1,5 +1,7 @@
 mod flow_field;
 mod navigation;
+#[cfg(test)]
+mod work_complexity;
 
 use std::collections::BTreeSet;
 
