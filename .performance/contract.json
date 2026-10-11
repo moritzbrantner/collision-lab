@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "suite": "collision-lab/acceptance-work-v1",
   "description": "Collision Lab remains an experiment/acceptance consumer rather than a second physics authority. The contract protects deterministic comparison work and representative browser/navigation experiments while production collision semantics remain in physics-engine.",
   "scenarios": [
@@ -82,6 +82,478 @@
           "direction": "lower",
           "signal": "wall-clock",
           "blocking": false
+        }
+      ]
+    }
+  ],
+  "operations": [
+    {
+      "id": "broad-phase-clustered-fixed-density",
+      "description": "Run every broad-phase algorithm on a fixed-density clustered family: copies of the deterministic 375-object clustered tile (seed 42, world extent 50, half extent 0.5; the density of the existing 3,000-object/extent-100 scenario) on a cubic lattice with a 125-unit pitch, cell size 2.5, fat margin 0.75.",
+      "publicContract": "collision_lab::run_algorithm",
+      "dimensions": {
+        "objects": {
+          "description": "bodies in the scene: 375 per tile on a 1x1x1, 2x2x2, 3x3x3 and 4x4x4 tile lattice, so density stays constant"
+        }
+      },
+      "scalePoints": [
+        {
+          "objects": 375
+        },
+        {
+          "objects": 3000
+        },
+        {
+          "objects": 10125
+        },
+        {
+          "objects": 24000
+        }
+      ],
+      "metrics": [
+        {
+          "name": "candidate-pairs",
+          "unit": "pairs",
+          "signal": "operation-count",
+          "budget": {
+            "max": 6560
+          },
+          "growth": [
+            {
+              "dimension": "objects",
+              "bound": "linear"
+            }
+          ],
+          "notes": "Output size; identical for every algorithm and equal to the naive all-pairs oracle at every point (correctness gate). Exactly tiles x single-tile pairs."
+        },
+        {
+          "name": "uniform-grid-aabb-tests",
+          "unit": "tests",
+          "signal": "operation-count",
+          "budget": {
+            "max": 73040
+          },
+          "growth": [
+            {
+              "dimension": "objects",
+              "bound": "linear"
+            }
+          ],
+          "notes": "Grid candidates are local to shared cells, so work is exactly tiles x single-tile work; tests/work_complexity.rs asserts that exact multiple."
+        },
+        {
+          "name": "dynamic-aabb-tree-aabb-tests",
+          "unit": "tests",
+          "signal": "operation-count",
+          "budget": {
+            "max": 102800
+          },
+          "growth": [
+            {
+              "dimension": "objects",
+              "bound": "linear"
+            }
+          ],
+          "notes": "Self-traversal of the dynamic AABB tree (the retained algorithm); exactly tiles x single-tile work on this family."
+        },
+        {
+          "name": "static-bvh-aabb-tests",
+          "unit": "tests",
+          "signal": "operation-count",
+          "budget": {
+            "max": 61760
+          },
+          "notes": "Median-split static BVH is near-linear (n log n), not exactly proportional: the 3x3x3 lattice splits tiles unevenly. The shared vocabulary has no n log n bound, so the contract carries a budget that rejects all-pairs regression at every point; the Rust test also asserts tests <= n*ceil(log2 n)/2 at every point."
+        },
+        {
+          "name": "octree-aabb-tests",
+          "unit": "tests",
+          "signal": "operation-count",
+          "budget": {
+            "max": 304729
+          },
+          "notes": "OctreeBroadPhase::default() has a fixed max depth of 6, so leaf populations grow with world extent at fixed density and work is super-linear by design. Budget only; the Rust test also asserts it stays below 10% of all-pairs from 3,000 objects on."
+        },
+        {
+          "name": "sweep-and-prune-aabb-tests",
+          "unit": "tests",
+          "signal": "operation-count",
+          "budget": {
+            "max": 10512360
+          },
+          "notes": "Single-axis sweep is output-sensitive in projected x-overlaps, which grow super-linearly on a 3D lattice. Budget only; the Rust test also asserts it stays below 10% of all-pairs from 3,000 objects on."
+        },
+        {
+          "name": "naive-aabb-tests",
+          "unit": "tests",
+          "signal": "operation-count",
+          "budget": {
+            "max": 287988000
+          },
+          "notes": "Deliberately quadratic all-pairs comparison oracle: exactly n(n-1)/2, asserted in the Rust test. Its budget is n(n-1)/2 at 24,000 objects; this is the comparison role, not a lab failure."
+        }
+      ]
+    },
+    {
+      "id": "broad-phase-sparse-fixed-density",
+      "description": "Run every broad-phase algorithm on a fixed-density sparse family: copies of the deterministic 375-object uniform tile (seed 42, world extent 50, half extent 0.5) on a cubic lattice with a 125-unit pitch, cell size 2.5, fat margin 0.75.",
+      "publicContract": "collision_lab::run_algorithm",
+      "dimensions": {
+        "objects": {
+          "description": "bodies in the scene: 375 per tile on a 1x1x1, 2x2x2, 3x3x3 and 4x4x4 tile lattice, so density stays constant"
+        }
+      },
+      "scalePoints": [
+        {
+          "objects": 375
+        },
+        {
+          "objects": 3000
+        },
+        {
+          "objects": 10125
+        },
+        {
+          "objects": 24000
+        }
+      ],
+      "metrics": [
+        {
+          "name": "candidate-pairs",
+          "unit": "pairs",
+          "signal": "operation-count",
+          "budget": {
+            "max": 80
+          },
+          "growth": [
+            {
+              "dimension": "objects",
+              "bound": "linear"
+            }
+          ],
+          "notes": "Output size; identical for every algorithm and equal to the naive all-pairs oracle at every point (correctness gate). Exactly tiles x single-tile pairs."
+        },
+        {
+          "name": "uniform-grid-aabb-tests",
+          "unit": "tests",
+          "signal": "operation-count",
+          "budget": {
+            "max": 560
+          },
+          "growth": [
+            {
+              "dimension": "objects",
+              "bound": "linear"
+            }
+          ],
+          "notes": "Grid candidates are local to shared cells, so work is exactly tiles x single-tile work; tests/work_complexity.rs asserts that exact multiple."
+        },
+        {
+          "name": "dynamic-aabb-tree-aabb-tests",
+          "unit": "tests",
+          "signal": "operation-count",
+          "budget": {
+            "max": 640
+          },
+          "growth": [
+            {
+              "dimension": "objects",
+              "bound": "linear"
+            }
+          ],
+          "notes": "Self-traversal of the dynamic AABB tree (the retained algorithm); exactly tiles x single-tile work on this family."
+        },
+        {
+          "name": "static-bvh-aabb-tests",
+          "unit": "tests",
+          "signal": "operation-count",
+          "budget": {
+            "max": 14320
+          },
+          "notes": "Median-split static BVH is near-linear (n log n), not exactly proportional: the 3x3x3 lattice splits tiles unevenly. The shared vocabulary has no n log n bound, so the contract carries a budget that rejects all-pairs regression at every point; the Rust test also asserts tests <= n*ceil(log2 n)/2 at every point."
+        },
+        {
+          "name": "octree-aabb-tests",
+          "unit": "tests",
+          "signal": "operation-count",
+          "budget": {
+            "max": 50660
+          },
+          "notes": "OctreeBroadPhase::default() has a fixed max depth of 6, so leaf populations grow with world extent at fixed density and work is super-linear by design. Budget only; the Rust test also asserts it stays below 10% of all-pairs from 3,000 objects on."
+        },
+        {
+          "name": "sweep-and-prune-aabb-tests",
+          "unit": "tests",
+          "signal": "operation-count",
+          "budget": {
+            "max": 1981160
+          },
+          "notes": "Single-axis sweep is output-sensitive in projected x-overlaps, which grow super-linearly on a 3D lattice. Budget only; the Rust test also asserts it stays below 10% of all-pairs from 3,000 objects on."
+        },
+        {
+          "name": "naive-aabb-tests",
+          "unit": "tests",
+          "signal": "operation-count",
+          "budget": {
+            "max": 287988000
+          },
+          "notes": "Deliberately quadratic all-pairs comparison oracle: exactly n(n-1)/2, asserted in the Rust test. Its budget is n(n-1)/2 at 24,000 objects; this is the comparison role, not a lab failure."
+        }
+      ]
+    },
+    {
+      "id": "retained-dynamic-tree-frame-sync",
+      "description": "Simulation::interactions with the retained dynamic AABB tree over 8 frames after the preparation build, clustered scene at the density of the existing 3,000-object scenario (375*k^3 objects at world extent 50*k, seed 42), every body moving.",
+      "publicContract": "collision_lab::Simulation::interactions",
+      "dimensions": {
+        "objects": {
+          "description": "bodies in the simulated scene, all dynamic"
+        }
+      },
+      "scalePoints": [
+        {
+          "objects": 375
+        },
+        {
+          "objects": 3000
+        },
+        {
+          "objects": 10125
+        }
+      ],
+      "metrics": [
+        {
+          "name": "full-builds",
+          "unit": "builds",
+          "signal": "operation-count",
+          "budget": {
+            "max": 0
+          },
+          "growth": [
+            {
+              "dimension": "objects",
+              "bound": "constant"
+            }
+          ],
+          "notes": "Full index builds after the preparation query; the retained tree must never rebuild per frame."
+        },
+        {
+          "name": "bodies-materialized",
+          "unit": "bodies",
+          "signal": "operation-count",
+          "budget": {
+            "max": 0
+          },
+          "growth": [
+            {
+              "dimension": "objects",
+              "bound": "constant"
+            }
+          ],
+          "notes": "Bodies copied into a temporary snapshot after preparation; the retained path never materializes the scene."
+        },
+        {
+          "name": "body-updates",
+          "unit": "updates",
+          "signal": "operation-count",
+          "budget": {
+            "max": 81000
+          },
+          "growth": [
+            {
+              "dimension": "objects",
+              "bound": "linear"
+            }
+          ],
+          "notes": "Exactly one retained update per moving body per frame (objects x 8)."
+        },
+        {
+          "name": "reinsertions",
+          "unit": "reinsertions",
+          "signal": "operation-count",
+          "budget": {
+            "max": 10125
+          },
+          "growth": [
+            {
+              "dimension": "objects",
+              "bound": "linear"
+            }
+          ],
+          "notes": "Updates whose body left its fat bounds; a subset of body updates."
+        }
+      ]
+    },
+    {
+      "id": "shared-flow-field-fixed-goal",
+      "description": "Zombie-arena 3D shared flow-field navigation (seed 5904189, 27x27 navigation grid, goal at the player cell): one preparation frame plus 20 frames of step_zombies at a fixed goal and topology.",
+      "publicContract": "collision-lab-zombie-arena-3d-wasm flow-field navigation mode",
+      "dimensions": {
+        "agents": {
+          "description": "zombies following the shared field; arena grid, topology and goal stay fixed"
+        }
+      },
+      "scalePoints": [
+        {
+          "agents": 1
+        },
+        {
+          "agents": 2
+        },
+        {
+          "agents": 4
+        },
+        {
+          "agents": 8
+        },
+        {
+          "agents": 16
+        },
+        {
+          "agents": 32
+        },
+        {
+          "agents": 64
+        }
+      ],
+      "metrics": [
+        {
+          "name": "planning-builds",
+          "unit": "builds",
+          "signal": "operation-count",
+          "budget": {
+            "max": 1
+          },
+          "growth": [
+            {
+              "dimension": "agents",
+              "bound": "constant"
+            }
+          ],
+          "notes": "Shared flow-field builds including the preparation build: one, never one per agent."
+        },
+        {
+          "name": "expanded-cells",
+          "unit": "cells",
+          "signal": "operation-count",
+          "budget": {
+            "max": 729
+          },
+          "growth": [
+            {
+              "dimension": "agents",
+              "bound": "constant"
+            }
+          ],
+          "notes": "Cells expanded by flow-field builds; depends on the grid and goal only. The budget is one full 27x27 grid expansion, so a second build fails it."
+        },
+        {
+          "name": "follow-lookups",
+          "unit": "agents",
+          "signal": "operation-count",
+          "budget": {
+            "max": 1344
+          },
+          "growth": [
+            {
+              "dimension": "agents",
+              "bound": "linear"
+            }
+          ],
+          "notes": "Agents that followed the shared field, summed over frames (agents x 21); per-agent follow work may grow linearly."
+        }
+      ]
+    },
+    {
+      "id": "shared-flow-field-change-rebuild",
+      "description": "After a prepared shared flow field, place one runtime barricade (topology change) and later move the goal; each change is followed by 20 frames of step_zombies.",
+      "publicContract": "collision-lab-zombie-arena-3d-wasm flow-field navigation mode",
+      "dimensions": {
+        "agents": {
+          "description": "zombies following the shared field; arena grid, topology and goal stay fixed"
+        }
+      },
+      "scalePoints": [
+        {
+          "agents": 1
+        },
+        {
+          "agents": 2
+        },
+        {
+          "agents": 4
+        },
+        {
+          "agents": 8
+        },
+        {
+          "agents": 16
+        },
+        {
+          "agents": 32
+        },
+        {
+          "agents": 64
+        }
+      ],
+      "metrics": [
+        {
+          "name": "topology-change-builds",
+          "unit": "builds",
+          "signal": "operation-count",
+          "budget": {
+            "max": 1
+          },
+          "growth": [
+            {
+              "dimension": "agents",
+              "bound": "constant"
+            }
+          ],
+          "notes": "Exactly one legitimate rebuild after the barricade; at least one is enforced as correctness by the BFS oracle, at most one by this budget."
+        },
+        {
+          "name": "topology-change-expanded-cells",
+          "unit": "cells",
+          "signal": "operation-count",
+          "budget": {
+            "max": 729
+          },
+          "growth": [
+            {
+              "dimension": "agents",
+              "bound": "constant"
+            }
+          ]
+        },
+        {
+          "name": "goal-change-builds",
+          "unit": "builds",
+          "signal": "operation-count",
+          "budget": {
+            "max": 1
+          },
+          "growth": [
+            {
+              "dimension": "agents",
+              "bound": "constant"
+            }
+          ],
+          "notes": "Exactly one legitimate rebuild after the goal moves; at least one is enforced as correctness by the BFS oracle, at most one by this budget."
+        },
+        {
+          "name": "goal-change-expanded-cells",
+          "unit": "cells",
+          "signal": "operation-count",
+          "budget": {
+            "max": 729
+          },
+          "growth": [
+            {
+              "dimension": "agents",
+              "bound": "constant"
+            }
+          ]
         }
       ]
     }
