@@ -6,11 +6,13 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
   score-history:
     permissions:
+      actions: read
       contents: write
     uses: moritzbrantner/reusable-workflows/.github/workflows/coding-tooling-score-history.yml@5e4c334179c59bbc4a4768bf033ff1d27cd89c0c
     with:
