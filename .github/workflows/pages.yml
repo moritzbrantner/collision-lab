@@ -2,28 +2,19 @@ name: pages
 
 on:
   push:
-    branches: [main]
+    branches:
+    - main
     paths:
-      - "web/**"
-      - "wasm/**"
-      - "wgpu-wasm/**"
-      - "zombie-arena-wasm/**"
-      - "zombie-arena-3d-wasm/**"
-      - "zombie-arena-character-wasm/**"
-      - "src/**"
-      - "Cargo.toml"
-      - ".github/workflows/pages.yml"
-  pull_request:
-    paths:
-      - "web/**"
-      - "wasm/**"
-      - "wgpu-wasm/**"
-      - "zombie-arena-wasm/**"
-      - "zombie-arena-3d-wasm/**"
-      - "zombie-arena-character-wasm/**"
-      - "src/**"
-      - "Cargo.toml"
-      - ".github/workflows/pages.yml"
+    - web/**
+    - wasm/**
+    - wgpu-wasm/**
+    - zombie-arena-wasm/**
+    - zombie-arena-3d-wasm/**
+    - zombie-arena-character-wasm/**
+    - src/**
+    - Cargo.toml
+    - .github/workflows/pages.yml
+  workflow_call: null
 
 permissions:
   contents: read

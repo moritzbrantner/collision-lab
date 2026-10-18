@@ -1,18 +1,10 @@
 name: Renderer benchmark matrix
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "web/**"
-      - "wasm/**"
-      - "wgpu-wasm/**"
-      - "scripts/profile-renderer*.sh"
-      - "profiles/runtime-profiler/renderer-*.json"
-      - ".github/workflows/renderer-benchmark.yml"
+  workflow_call: null
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  group: collision-lab-renderer-benchmark-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:

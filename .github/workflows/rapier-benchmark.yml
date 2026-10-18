@@ -1,17 +1,11 @@
 name: Rapier scenario benchmark
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "Cargo.toml"
-      - "benches/**"
-      - "src/**"
-      - ".github/workflows/rapier-benchmark.yml"
-  workflow_dispatch:
+  workflow_dispatch: null
+  workflow_call: null
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: collision-lab-rapier-benchmark-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
