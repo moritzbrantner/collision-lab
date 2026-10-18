@@ -12,7 +12,7 @@ octree-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev =
 spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "c9a2d1bdaad586e6c4a25ffce2d78dba8060c758" }
 
 [dev-dependencies]
-rapier3d = "=0.36.0"
+rapier3d = "=0.36.1"
 
 [[bench]]
 name = "rapier_scenarios"
