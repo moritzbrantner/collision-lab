@@ -101,7 +101,7 @@ jobs:
       id-token: write
 
   merge-ready:
-    name: merge-ready
+    name: ${{ github.event_name == 'pull_request' && 'merge-ready' || 'validation-summary' }}
     if: ${{ always() && github.event_name == 'pull_request' }}
     needs: [rust, runtime-evidence, renderer-benchmark, rapier-benchmark, pages-validation]
     runs-on: ubuntu-latest
