@@ -15,9 +15,43 @@ concurrency:
 
 jobs:
   rust:
+    outputs:
+      renderer: ${{ steps.scope.outputs.renderer }}
+      rapier: ${{ steps.scope.outputs.rapier }}
+      pages: ${{ steps.scope.outputs.pages }}
+      allow-skipped: ${{ steps.scope.outputs.allow-skipped }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Determine conditional validation scope
+        id: scope
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          python3 - <<'PYTHON'
+          import fnmatch, os, subprocess
+          paths = subprocess.check_output(["git", "diff", "--no-renames", "--name-only", os.environ["BASE_SHA"], os.environ["HEAD_SHA"]], text=True).splitlines()
+          patterns = {
+              "renderer": ["web/**", "wasm/**", "wgpu-wasm/**", "scripts/profile-renderer*.sh", "profiles/runtime-profiler/renderer-*.json", ".github/workflows/renderer-benchmark.yml"],
+              "rapier": ["Cargo.toml", "benches/**", "src/**", ".github/workflows/rapier-benchmark.yml"],
+              "pages": ["web/**", "wasm/**", "wgpu-wasm/**", "zombie-arena-wasm/**", "zombie-arena-3d-wasm/**", "zombie-arena-character-wasm/**", "src/**", "Cargo.toml", ".github/workflows/pages.yml"],
+          }
+          import json
+          skipped = []
+          job_ids = {"renderer": "renderer-benchmark", "rapier": "rapier-benchmark", "pages": "pages-validation"}
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              for name, globs in patterns.items():
+                  changed = any(fnmatch.fnmatchcase(path, glob) for path in paths for glob in globs)
+                  print(f"{name}={str(changed).lower()}", file=output)
+                  if not changed:
+                      skipped.append(job_ids[name])
+              print("allow-skipped=" + json.dumps(skipped), file=output)
+          PYTHON
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: rustfmt, clippy
@@ -42,3 +76,38 @@ jobs:
       - run: cargo test --manifest-path zombie-arena-character-wasm/Cargo.toml --all-features
       - run: cargo check --manifest-path zombie-arena-character-wasm/Cargo.toml --target wasm32-unknown-unknown
       - run: cargo run --release -- --objects 1000 --cell-size 2.5 --seed 42
+
+  runtime-evidence:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/runtime-evidence.yml
+
+  renderer-benchmark:
+    needs: rust
+    if: github.event_name == 'pull_request' && needs.rust.outputs.renderer == 'true'
+    uses: ./.github/workflows/renderer-benchmark.yml
+
+  rapier-benchmark:
+    needs: rust
+    if: github.event_name == 'pull_request' && needs.rust.outputs.rapier == 'true'
+    uses: ./.github/workflows/rapier-benchmark.yml
+
+  pages-validation:
+    needs: rust
+    if: github.event_name == 'pull_request' && needs.rust.outputs.pages == 'true'
+    uses: ./.github/workflows/pages.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+  merge-ready:
+    name: merge-ready
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: [rust, runtime-evidence, renderer-benchmark, rapier-benchmark, pages-validation]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: moritzbrantner/reusable-workflows/.github/actions/merge-ready@b0f25f241d76af2584dfc9e375084ff5c5cb97da
+        with:
+          needs: ${{ toJSON(needs) }}
+          required: '["rust", "runtime-evidence", "renderer-benchmark", "rapier-benchmark", "pages-validation"]'
+          allow-skipped: ${{ needs.rust.outputs.allow-skipped || '[]' }}
