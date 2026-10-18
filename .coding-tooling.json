@@ -19,6 +19,6 @@
   },
   "merge": {
     "authority": "hosted",
-    "requiredChecks": ["rust"]
+    "requiredChecks": ["merge-ready"]
   }
 }
