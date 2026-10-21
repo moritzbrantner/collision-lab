@@ -1,4 +1,28 @@
 @import "tailwindcss";
+/* Layered so Tailwind utilities on cells/headers override the package defaults. */
+@import "@moritzbrantner/tables/table.css" layer(components);
+
+@layer components {
+  .lab-table {
+    --mb-table-border: transparent;
+    --mb-table-cell-border: #27272a;
+    --mb-table-header-bg: rgb(24 24 27 / 0.5);
+    --mb-table-row-bg: transparent;
+    --mb-table-row-alt-bg: transparent;
+    --mb-table-row-hover-bg: rgb(24 24 27 / 0.35);
+    --mb-table-text: #e4e4e7;
+    --mb-table-muted: #52525b;
+  }
+
+  .lab-table .mb-native-table__scroll {
+    border: 0;
+    border-radius: 0;
+  }
+
+  .lab-table .mb-native-table__cell {
+    line-height: 1.25rem;
+  }
+}
 
 :root {
   color-scheme: dark;

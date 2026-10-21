@@ -13,6 +13,9 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
+    "paths": {
+      "@moritzbrantner/tables/table": ["./node_modules/@moritzbrantner/tables/src/table.tsx"]
+    },
     "plugins": [{ "name": "next" }]
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

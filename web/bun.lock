@@ -5,6 +5,7 @@
     "": {
       "name": "collision-lab-web",
       "dependencies": {
+        "@moritzbrantner/tables": "github:moritzbrantner/tables#08e15f6e29fa1c32311a515be09ca2b87ab602e2",
         "next": "16.3.6",
         "react": "19.3.0",
         "react-dom": "19.3.0",
@@ -96,6 +97,8 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.6.0", "", {}, "sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@moritzbrantner/tables": ["@moritzbrantner/tables@github:moritzbrantner/tables#08e15f6", { "peerDependencies": { "react": "^19.0.0", "react-dom": "^19.0.0" } }, "moritzbrantner-tables-08e15f6", "sha512-a9wULtbot7CoEd+tKTBbvpUgsKu51Gfu49B+cLxK+cUneD3RDhyI4S/h89cdYLcx9gBX9kLv3QsNz38TF+I78Q=="],
 
     "@next/env": ["@next/env@16.3.6", "", {}, "sha512-x9Vblze1EbtltQYnNH38xCPWU3TVfBd1eXqA3+w9+BTpedkkdNpAaltXlGQ/nsc1+E0mVTNrtcbX3GoO09zeLQ=="],
 

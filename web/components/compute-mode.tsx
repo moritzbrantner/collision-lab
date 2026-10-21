@@ -13,6 +13,7 @@ import {
   type WebGpuNaiveMeasurement,
   type WebGpuNaiveRunner,
 } from "../lib/webgpu-naive";
+import { LabTable, monoColumn, type LabColumn } from "./lab-table";
 
 type Scenario = "uniform" | "clustered";
 
@@ -58,6 +59,62 @@ type ComputeRow = {
 const COUNTS = [100, 250, 500, 1000, 2500, 5000] as const;
 const SAMPLES = 3;
 const CELL_SIZE = 4;
+
+const msOrDash = (value: number | null | undefined) => (value == null ? "—" : formatMs(value));
+const objectsColumn = monoColumn<ComputeRow>("objects", "Objects", (row) => row.objects.toLocaleString(), "primary");
+
+const TIMING_COLUMNS: LabColumn<ComputeRow>[] = [
+  objectsColumn,
+  monoColumn("cpu-naive", "CPU naive", (row) => formatMs(row.cpuNaiveMs), "primary"),
+  monoColumn("gpu-naive", "WebGPU naive", (row) => msOrDash(row.gpuNaive?.totalMs), "primary"),
+  monoColumn("cpu-grid", "CPU grid", (row) => formatMs(row.cpuGridMs), "primary"),
+  monoColumn("gpu-grid", "WebGPU grid", (row) => msOrDash(row.gpuGrid?.totalMs), "primary"),
+  monoColumn("gpu-grid-pass", "GPU grid pass", (row) => msOrDash(row.gpuGrid?.computeMs)),
+  {
+    id: "fastest",
+    header: "Fastest valid",
+    accessor: (row) => fastestBackend(row).label,
+    cellClassName: "px-5 py-4 font-semibold text-zinc-300",
+  },
+];
+
+const GRID_WORK_COLUMNS: LabColumn<ComputeRow>[] = [
+  objectsColumn,
+  monoColumn("possible-pairs", "Possible pairs", (row) => row.possiblePairs.toLocaleString()),
+  monoColumn("cpu-tests", "Grid AABB tests CPU", (row) => row.cpuGridAabbTests.toLocaleString()),
+  monoColumn("gpu-tests", "Grid AABB tests GPU", (row) => row.gpuGrid?.aabbTests.toLocaleString() ?? "—"),
+  monoColumn("eliminated", "Eliminated", (row) =>
+    formatPercent(1 - row.cpuGridAabbTests / Math.max(1, row.possiblePairs)),
+  ),
+  monoColumn("occupied-cells", "Occupied cells CPU/GPU", (row) =>
+    `${row.cpuGridOccupiedCells.toLocaleString()} / ${row.gpuGrid?.occupiedCells.toLocaleString() ?? "—"}`,
+  ),
+  monoColumn("memberships", "Memberships", (row) => row.gpuGrid?.memberships.toLocaleString() ?? "—"),
+  {
+    id: "pair-parity",
+    header: "Pair parity",
+    accessor: (row) => row.gridPairParity,
+    cellClassName: "px-5 py-4",
+    cell: (_, row) => <ParityLabel value={row.gridPairParity} />,
+  },
+  {
+    id: "work-parity",
+    header: "Work parity",
+    accessor: (row) => row.gridWorkParity,
+    cellClassName: "px-5 py-4",
+    cell: (_, row) => <ParityLabel value={row.gridWorkParity} />,
+  },
+];
+
+const GPU_COST_COLUMNS: LabColumn<ComputeRow>[] = [
+  objectsColumn,
+  monoColumn("naive-prepare", "Naive prepare", (row) => msOrDash(row.gpuNaive?.prepareUploadMs)),
+  monoColumn("naive-pass", "Naive pass", (row) => msOrDash(row.gpuNaive?.computeMs)),
+  monoColumn("grid-prepare", "Grid prepare", (row) => msOrDash(row.gpuGrid?.prepareUploadMs)),
+  monoColumn("grid-build", "Grid build", (row) => msOrDash(row.gpuGrid?.buildPassMs)),
+  monoColumn("grid-test", "Grid test", (row) => msOrDash(row.gpuGrid?.testPassMs)),
+  monoColumn("grid-submit", "Grid submit→map", (row) => msOrDash(row.gpuGrid?.submitReadbackMs)),
+];
 
 export function ComputeMode() {
   const [scenario, setScenario] = useState<Scenario>("uniform");
@@ -367,37 +424,7 @@ export function ComputeMode() {
             CPU values time minimal scalar-return WASM entry points. GPU totals include per-point preparation, upload, dispatch, synchronization, readback, and decoding; device and pipeline creation are excluded.
           </p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-[72rem] w-full text-left text-sm">
-            <thead className="bg-zinc-900/50 text-xs uppercase tracking-wide text-zinc-600">
-              <tr>
-                <th className="px-5 py-3">Objects</th>
-                <th className="px-5 py-3">CPU naive</th>
-                <th className="px-5 py-3">WebGPU naive</th>
-                <th className="px-5 py-3">CPU grid</th>
-                <th className="px-5 py-3">WebGPU grid</th>
-                <th className="px-5 py-3">GPU grid pass</th>
-                <th className="px-5 py-3">Fastest valid</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-800">
-              {rows.map((row) => {
-                const fastest = fastestBackend(row);
-                return (
-                  <tr key={row.objects}>
-                    <td className="px-5 py-4 font-mono text-zinc-200">{row.objects.toLocaleString()}</td>
-                    <td className="px-5 py-4 font-mono text-zinc-200">{formatMs(row.cpuNaiveMs)}</td>
-                    <td className="px-5 py-4 font-mono text-zinc-200">{row.gpuNaive ? formatMs(row.gpuNaive.totalMs) : "—"}</td>
-                    <td className="px-5 py-4 font-mono text-zinc-200">{formatMs(row.cpuGridMs)}</td>
-                    <td className="px-5 py-4 font-mono text-zinc-200">{row.gpuGrid ? formatMs(row.gpuGrid.totalMs) : "—"}</td>
-                    <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid?.computeMs == null ? "—" : formatMs(row.gpuGrid.computeMs)}</td>
-                    <td className="px-5 py-4 font-semibold text-zinc-300">{fastest.label}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <LabTable columns={TIMING_COLUMNS} rows={rows} rowKey="objects" minWidth="72rem" />
       </section>
 
       <section className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950/70">
@@ -407,38 +434,7 @@ export function ComputeMode() {
             Rust and WebGPU insert each body into every touched cell and globally deduplicate candidate pairs before exact AABB tests. Equal work counters are a stronger check than equal final overlap counts alone.
           </p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-[70rem] w-full text-left text-sm">
-            <thead className="bg-zinc-900/50 text-xs uppercase tracking-wide text-zinc-600">
-              <tr>
-                <th className="px-5 py-3">Objects</th>
-                <th className="px-5 py-3">Possible pairs</th>
-                <th className="px-5 py-3">Grid AABB tests CPU</th>
-                <th className="px-5 py-3">Grid AABB tests GPU</th>
-                <th className="px-5 py-3">Eliminated</th>
-                <th className="px-5 py-3">Occupied cells CPU/GPU</th>
-                <th className="px-5 py-3">Memberships</th>
-                <th className="px-5 py-3">Pair parity</th>
-                <th className="px-5 py-3">Work parity</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-800">
-              {rows.map((row) => (
-                <tr key={row.objects}>
-                  <td className="px-5 py-4 font-mono text-zinc-200">{row.objects.toLocaleString()}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.possiblePairs.toLocaleString()}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.cpuGridAabbTests.toLocaleString()}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid ? row.gpuGrid.aabbTests.toLocaleString() : "—"}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{formatPercent(1 - row.cpuGridAabbTests / Math.max(1, row.possiblePairs))}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid ? `${row.cpuGridOccupiedCells.toLocaleString()} / ${row.gpuGrid.occupiedCells.toLocaleString()}` : `${row.cpuGridOccupiedCells.toLocaleString()} / —`}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid ? row.gpuGrid.memberships.toLocaleString() : "—"}</td>
-                  <td className="px-5 py-4">{ParityLabel({ value: row.gridPairParity })}</td>
-                  <td className="px-5 py-4">{ParityLabel({ value: row.gridWorkParity })}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <LabTable columns={GRID_WORK_COLUMNS} rows={rows} rowKey="objects" minWidth="70rem" />
       </section>
 
       <section className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950/70">
@@ -448,34 +444,7 @@ export function ComputeMode() {
             Pass-only values require the adapter's timestamp-query feature. Submit→map contains queueing, compute, copies, synchronization, and mapping, so it is not additive with the pass columns.
           </p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-[76rem] w-full text-left text-sm">
-            <thead className="bg-zinc-900/50 text-xs uppercase tracking-wide text-zinc-600">
-              <tr>
-                <th className="px-5 py-3">Objects</th>
-                <th className="px-5 py-3">Naive prepare</th>
-                <th className="px-5 py-3">Naive pass</th>
-                <th className="px-5 py-3">Grid prepare</th>
-                <th className="px-5 py-3">Grid build</th>
-                <th className="px-5 py-3">Grid test</th>
-                <th className="px-5 py-3">Grid submit→map</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-800">
-              {rows.map((row) => (
-                <tr key={row.objects}>
-                  <td className="px-5 py-4 font-mono text-zinc-200">{row.objects.toLocaleString()}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuNaive ? formatMs(row.gpuNaive.prepareUploadMs) : "—"}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuNaive?.computeMs == null ? "—" : formatMs(row.gpuNaive.computeMs)}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid ? formatMs(row.gpuGrid.prepareUploadMs) : "—"}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid?.buildPassMs == null ? "—" : formatMs(row.gpuGrid.buildPassMs)}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid?.testPassMs == null ? "—" : formatMs(row.gpuGrid.testPassMs)}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.gpuGrid ? formatMs(row.gpuGrid.submitReadbackMs) : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <LabTable columns={GPU_COST_COLUMNS} rows={rows} rowKey="objects" minWidth="76rem" />
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
