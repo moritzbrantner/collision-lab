@@ -6,6 +6,7 @@ import initWasm, {
   preset_analysis_json,
   preset_catalog_json,
 } from "../lib/wasm-pkg/collision_wasm";
+import { LabTable, type LabColumn } from "./lab-table";
 
 type AlgorithmId =
   | "naive"
@@ -59,6 +60,62 @@ const ALGORITHMS: { id: AlgorithmId; label: string }[] = [
   { id: "sweep-and-prune", label: "Sweep" },
   { id: "static-bvh", label: "Static BVH" },
   { id: "dynamic-aabb-tree", label: "Dynamic tree" },
+];
+
+const PRESET_COLUMNS: LabColumn<PresetAnalysis>[] = [
+  {
+    id: "workload",
+    header: "Workload",
+    accessor: (row) => row.preset.id,
+    width: "18rem",
+    cellClassName: "px-5 py-5 align-top",
+    cell: (_, row) => (
+      <>
+        <div className="font-semibold text-zinc-200">{row.preset.title}</div>
+        <div className="mt-1 font-mono text-[11px] text-zinc-600">{row.preset.id}</div>
+        <p className="mt-2 text-xs leading-5 text-zinc-500">{row.preset.description}</p>
+        <div className={`mt-3 text-[11px] font-semibold ${row.pairParity ? "text-emerald-400" : "text-red-400"}`}>
+          {row.pairParity ? "exact pair parity" : "PAIR MISMATCH"}
+        </div>
+      </>
+    ),
+  },
+  {
+    id: "configuration",
+    header: "Rust configuration",
+    accessor: (row) => row.preset.config,
+    width: "18rem",
+    cellClassName: "px-5 py-5 align-top font-mono text-xs leading-6 text-zinc-500",
+    cell: (_, row) => (
+      <>
+        <div>{row.preset.config.scenario} · seed {row.preset.config.seed}</div>
+        <div>world ±{row.preset.config.worldExtent.toFixed(2)}</div>
+        <div>half extent {row.preset.config.halfExtent.toFixed(2)}</div>
+        <div>grid cell {row.preset.config.cellSize.toFixed(2)}</div>
+        <div>{row.overlaps.toLocaleString()} overlaps / {row.possiblePairs.toLocaleString()} possible</div>
+      </>
+    ),
+  },
+  ...ALGORITHMS.map(
+    (algorithm): LabColumn<PresetAnalysis> => ({
+      id: algorithm.id,
+      header: algorithm.label,
+      headerClassName: "px-4 py-3 uppercase tracking-wide",
+      accessor: (row) => row.measurements.find((measurement) => measurement.algorithm === algorithm.id),
+      cellClassName: "px-4 py-5 align-top",
+      cell: (_, row) => {
+        const measurement = row.measurements.find((entry) => entry.algorithm === algorithm.id);
+        return measurement ? (
+          <>
+            <div className="font-mono text-sm text-zinc-200">{measurement.aabbTests.toLocaleString()}</div>
+            <div className="mt-1 text-[11px] text-zinc-600">{measurement.reduction.toFixed(1)}% avoided</div>
+          </>
+        ) : (
+          <span className="text-zinc-700">—</span>
+        );
+      },
+    }),
+  ),
 ];
 
 export function PresetAnalysis() {
@@ -154,64 +211,7 @@ export function PresetAnalysis() {
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="min-w-[72rem] w-full text-left text-sm">
-          <thead className="bg-zinc-900/50 text-xs uppercase tracking-wide text-zinc-600">
-            <tr>
-              <th className="px-5 py-3">Workload</th>
-              <th className="px-5 py-3">Rust configuration</th>
-              {ALGORITHMS.map((algorithm) => (
-                <th key={algorithm.id} className="px-4 py-3">{algorithm.label}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-800">
-            {rows.map((row) => {
-              const byAlgorithm = new Map(
-                row.measurements.map((measurement) => [measurement.algorithm, measurement]),
-              );
-              return (
-                <tr key={row.preset.id} className="align-top">
-                  <td className="w-[18rem] px-5 py-5">
-                    <div className="font-semibold text-zinc-200">{row.preset.title}</div>
-                    <div className="mt-1 font-mono text-[11px] text-zinc-600">{row.preset.id}</div>
-                    <p className="mt-2 text-xs leading-5 text-zinc-500">{row.preset.description}</p>
-                    <div className={`mt-3 text-[11px] font-semibold ${row.pairParity ? "text-emerald-400" : "text-red-400"}`}>
-                      {row.pairParity ? "exact pair parity" : "PAIR MISMATCH"}
-                    </div>
-                  </td>
-                  <td className="w-[18rem] px-5 py-5 font-mono text-xs leading-6 text-zinc-500">
-                    <div>{row.preset.config.scenario} · seed {row.preset.config.seed}</div>
-                    <div>world ±{row.preset.config.worldExtent.toFixed(2)}</div>
-                    <div>half extent {row.preset.config.halfExtent.toFixed(2)}</div>
-                    <div>grid cell {row.preset.config.cellSize.toFixed(2)}</div>
-                    <div>{row.overlaps.toLocaleString()} overlaps / {row.possiblePairs.toLocaleString()} possible</div>
-                  </td>
-                  {ALGORITHMS.map((algorithm) => {
-                    const measurement = byAlgorithm.get(algorithm.id);
-                    return (
-                      <td key={algorithm.id} className="px-4 py-5">
-                        {measurement ? (
-                          <>
-                            <div className="font-mono text-sm text-zinc-200">
-                              {measurement.aabbTests.toLocaleString()}
-                            </div>
-                            <div className="mt-1 text-[11px] text-zinc-600">
-                              {measurement.reduction.toFixed(1)}% avoided
-                            </div>
-                          </>
-                        ) : (
-                          <span className="text-zinc-700">—</span>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <LabTable columns={PRESET_COLUMNS} rows={rows} rowKey={(row) => row.preset.id} minWidth="72rem" />
 
       <div className="grid gap-4 border-t border-zinc-800 p-5 sm:p-7 md:grid-cols-3">
         <Insight

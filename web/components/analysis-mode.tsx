@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import initWasm, { DemoWorld } from "../lib/wasm-pkg/collision_wasm";
+import { LabTable, monoColumn, type LabColumn } from "./lab-table";
 
 type AlgorithmId =
   | "naive"
@@ -42,6 +43,28 @@ const ALGORITHMS: { id: AlgorithmId; label: string; complexity: string; stroke: 
   { id: "sweep-and-prune", label: "Sweep & prune", complexity: "O(n log n + k)", stroke: "#facc15" },
   { id: "static-bvh", label: "Static BVH", complexity: "hierarchy-dependent", stroke: "#a78bfa" },
   { id: "dynamic-aabb-tree", label: "Dynamic AABB tree", complexity: "update/query-dependent", stroke: "#fb7185" },
+];
+
+const RESULT_COLUMNS: LabColumn<AnalysisRow>[] = [
+  monoColumn("objects", "Objects", (row) => row.objects.toLocaleString(), "primary"),
+  monoColumn("possible-pairs", "Possible pairs", (row) => row.possiblePairs.toLocaleString()),
+  ...ALGORITHMS.map(
+    (algorithm): LabColumn<AnalysisRow> => ({
+      id: algorithm.id,
+      header: algorithm.label,
+      accessor: (row) => row.measurements[algorithm.id],
+      cellClassName: "px-5 py-4",
+      cell: (_, row) => {
+        const measurement = row.measurements[algorithm.id];
+        return (
+          <>
+            <div className="font-mono text-zinc-200">{measurement.tests.toLocaleString()}</div>
+            <div className="mt-1 text-xs text-zinc-600">{measurement.reduction.toFixed(2)}% avoided</div>
+          </>
+        );
+      },
+    }),
+  ),
 ];
 
 export function AnalysisMode() {
@@ -184,36 +207,7 @@ export function AnalysisMode() {
             Lower is better. All algorithms must still return the same overlap pair set.
           </p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-[64rem] w-full text-left text-sm">
-            <thead className="bg-zinc-900/50 text-xs uppercase tracking-wide text-zinc-600">
-              <tr>
-                <th className="px-5 py-3">Objects</th>
-                <th className="px-5 py-3">Possible pairs</th>
-                {ALGORITHMS.map((algorithm) => (
-                  <th key={algorithm.id} className="px-5 py-3">{algorithm.label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-800">
-              {rows.map((row) => (
-                <tr key={row.objects}>
-                  <td className="px-5 py-4 font-mono text-zinc-200">{row.objects.toLocaleString()}</td>
-                  <td className="px-5 py-4 font-mono text-zinc-400">{row.possiblePairs.toLocaleString()}</td>
-                  {ALGORITHMS.map((algorithm) => {
-                    const measurement = row.measurements[algorithm.id];
-                    return (
-                      <td key={algorithm.id} className="px-5 py-4">
-                        <div className="font-mono text-zinc-200">{measurement.tests.toLocaleString()}</div>
-                        <div className="mt-1 text-xs text-zinc-600">{measurement.reduction.toFixed(2)}% avoided</div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <LabTable columns={RESULT_COLUMNS} rows={rows} rowKey="objects" minWidth="64rem" />
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">
