@@ -54,8 +54,8 @@ test("engine capabilities keep dispatch evidence separate from reference accepta
     pairs.locator("tbody tr").filter({ hasText: "capsule-row" }),
   ).toHaveCount(3);
   await expect(
-    ledger.getByRole("link", { name: "e0c6be73c9" }),
-  ).toHaveAttribute("href", /e0c6be73c9b34efd09220696a4151016b822b5e0/);
+    ledger.getByRole("link", { name: "161ad06bea" }),
+  ).toHaveAttribute("href", /161ad06bea4c31dec12d79ab5773f273a54cd498/);
   const sphereCapsule = pairs
     .getByRole("row")
     .filter({ hasText: "sphere ↔ capsule" });

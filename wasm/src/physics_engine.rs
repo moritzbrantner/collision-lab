@@ -1,11 +1,10 @@
-use physics_engine::{
-    BodyId,
-    approximate::{Body, Config, PRIMITIVE_CAPABILITIES_JSON, Report, Shape, Vector as V, World},
+use physics_engine::approximate::{
+    Body, Config, PRIMITIVE_CAPABILITIES_JSON, Report, Shape, Vector as V, World,
 };
 use serde_json::json;
 use wasm_bindgen::prelude::*;
 
-const PHYSICS_ENGINE_REVISION: &str = "e0c6be73c9b34efd09220696a4151016b822b5e0";
+const PHYSICS_ENGINE_REVISION: &str = "161ad06bea4c31dec12d79ab5773f273a54cd498";
 
 /// The engine owns this versioned ledger; the consumer does not reclassify capabilities.
 #[wasm_bindgen]
@@ -137,31 +136,21 @@ pub fn physics_engine_capsule_wedge_ccd_json() -> Result<String, JsValue> {
     .map_err(|error| JsValue::from_str(&error.to_string()))?;
 
     world
-        .add_body(Body::new(
-            BodyId(1),
-            Shape::wedge(V(10.0, 10.0, 0.02)),
-            V::ZERO,
-            0.0,
-        ))
+        .add_body(Body::new(Shape::wedge(V(10.0, 10.0, 0.02)), V::ZERO, 0.0))
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
 
-    let mut projectile = Body::new(
-        BodyId(2),
-        Shape::capsule(0.5, 0.1),
-        V(-5.0, -5.0, 10.0),
-        1.0,
-    );
+    let mut projectile = Body::new(Shape::capsule(0.5, 0.1), V(-5.0, -5.0, 10.0), 1.0);
     projectile.velocity = V(0.0, 0.0, -10_000.0);
     projectile.ccd = true;
     projectile.retire_on_impact = true;
-    world
+    let projectile_id = world
         .add_body(projectile)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
 
     let report = world
         .step(1.0 / 60.0)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
-    let hit = report.swept_contacts > 0 && report.retired == vec![BodyId(2)];
+    let hit = report.swept_contacts > 0 && report.retired == vec![projectile_id];
 
     serde_json::to_string(&json!({
         "source": "physics-engine",
@@ -169,7 +158,8 @@ pub fn physics_engine_capsule_wedge_ccd_json() -> Result<String, JsValue> {
         "scenario": "fast-capsule-thin-wedge",
         "hit": hit,
         "sweptContacts": report.swept_contacts,
-        "retiredBodyIds": report.retired.iter().map(|id| id.0).collect::<Vec<_>>(),
+        "projectileBodyId": projectile_id.slot(),
+        "retiredBodyIds": report.retired.iter().map(|id| id.slot()).collect::<Vec<_>>(),
         "primitiveQueries": report.geometry.primitive_queries,
         "primitiveSweepIterations": report.geometry.primitive_sweep_iterations,
         "genericFallbackCalls": report.geometry.generic_fallback_calls,
@@ -188,11 +178,11 @@ fn primitive_pair_report(left_shape: Shape, right_shape: Shape) -> Result<Report
     })
     .map_err(|error| error.to_string())?;
 
-    let mut left = Body::new(BodyId(1), left_shape, V::ZERO, 1.0);
+    let mut left = Body::new(left_shape, V::ZERO, 1.0);
     left.rotation_locked = true;
     left.sleep_allowed = false;
 
-    let mut right = Body::new(BodyId(2), right_shape, V(0.5, 0.0, 0.0), 0.0);
+    let mut right = Body::new(right_shape, V(0.5, 0.0, 0.0), 0.0);
     right.sleep_allowed = false;
 
     world.add_body(left).map_err(|error| error.to_string())?;

@@ -47,7 +47,7 @@ export function parseCapabilityLedger(json: string) {
   if (
     data.schemaVersion !== 1 ||
     data.world !== "approximate::World" ||
-    data.scalar !== "f64"
+    data.scalar !== "f32"
   ) {
     throw new Error("Unsupported engine capability schema");
   }
