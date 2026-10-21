@@ -46,6 +46,7 @@ type CcdEvidence = {
   scenario: "fast-capsule-thin-wedge";
   hit: boolean;
   sweptContacts: number;
+  projectileBodyId: number;
   retiredBodyIds: number[];
   primitiveQueries: number;
   primitiveSweepIterations: number;
@@ -157,7 +158,7 @@ export function PhysicsEngineIntegrationEvidence() {
               <p className="mt-3 text-sm leading-6 text-zinc-500">
                 Collision Lab does not copy Physics Engine&apos;s wedge
                 geometry, primitive dispatcher, or continuous-collision logic.
-                These results execute the engine&apos;s public f64 fixed-step
+                These results execute the engine&apos;s public f32 fixed-step
                 API in WASM and render its deterministic work counters.
               </p>
             </div>
@@ -312,7 +313,7 @@ export function PhysicsEngineIntegrationEvidence() {
               />
               <EvidenceMetric
                 label="Projectile retired"
-                value={ccd.retiredBodyIds.includes(2) ? "yes" : "no"}
+                value={ccd.retiredBodyIds.includes(ccd.projectileBodyId) ? "yes" : "no"}
               />
             </dl>
 
