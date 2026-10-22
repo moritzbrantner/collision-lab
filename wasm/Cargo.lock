@@ -108,7 +108,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "physics-engine"
 version = "0.1.0"
-source = "git+https://github.com/moritzbrantner/physics-engine?rev=161ad06bea4c31dec12d79ab5773f273a54cd498#161ad06bea4c31dec12d79ab5773f273a54cd498"
+source = "git+https://github.com/moritzbrantner/physics-engine?rev=ad5bcbf4f04294fff050d7d41af13937b234f481#ad5bcbf4f04294fff050d7d41af13937b234f481"
 dependencies = [
  "bvh-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=61a218d873893aa2dbc6fe9b4f1b32ecb2e078ae)",
  "geometry-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=61a218d873893aa2dbc6fe9b4f1b32ecb2e078ae)",
