@@ -12,7 +12,7 @@
     "test:physics-engine": "bun test app/explain/physics-engine-integration/physics-engine-capabilities.test.mjs"
   },
   "dependencies": {
-    "@moritzbrantner/tables": "github:moritzbrantner/tables#4071f37f41987035af93534210ec2d77bc191212",
+    "@moritzbrantner/tables": "github:moritzbrantner/tables#c9a2a0a912810f8c2888eafdd6fd8c39e207a5d3",
     "next": "16.4.2",
     "react": "19.3.1",
     "react-dom": "19.3.1",
