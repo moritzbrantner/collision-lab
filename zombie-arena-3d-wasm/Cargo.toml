@@ -11,5 +11,5 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 collision-lab = { path = ".." }
 serde_json = "1"
-spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "42d69e0d20ed558c76e0ca2548075db7aebb3494" }
+spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "1e2889c7df82a575c2151052a0e0546c74ff62bd" }
 wasm-bindgen = "0.2"
