@@ -6,10 +6,10 @@ license = "MIT"
 rust-version = "1.86"
 
 [dependencies]
-bvh-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "f0c248dadd8c558a24d439eec1b7b4ffd354ef82" }
-bvh-trace-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "f0c248dadd8c558a24d439eec1b7b4ffd354ef82" }
-octree-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "f0c248dadd8c558a24d439eec1b7b4ffd354ef82" }
-spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "f0c248dadd8c558a24d439eec1b7b4ffd354ef82" }
+bvh-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "1c91cf204effc8eeaddf0fc73c130ce2dd643891" }
+bvh-trace-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "1c91cf204effc8eeaddf0fc73c130ce2dd643891" }
+octree-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "1c91cf204effc8eeaddf0fc73c130ce2dd643891" }
+spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "1c91cf204effc8eeaddf0fc73c130ce2dd643891" }
 
 [dev-dependencies]
 rapier3d = "=0.36.1"
