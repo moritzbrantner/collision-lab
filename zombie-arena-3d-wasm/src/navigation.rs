@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    collections::{BTreeMap, BTreeSet, BinaryHeap},
+    collections::{BTreeSet, BinaryHeap},
 };
 
 use wasm_bindgen::prelude::*;
@@ -16,6 +16,66 @@ const BARRICADE_HEALTH: f32 = 100.0;
 pub(crate) struct Cell {
     pub(crate) x: i32,
     pub(crate) z: i32,
+}
+
+/// Row-major indexing over the square `min_cell..=max_cell` navigation grid.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct GridBounds {
+    min_cell: i32,
+    side: usize,
+}
+
+impl GridBounds {
+    pub(crate) fn new(min_cell: i32, max_cell: i32) -> Self {
+        Self {
+            min_cell,
+            side: usize::try_from(i64::from(max_cell) - i64::from(min_cell) + 1).unwrap_or(0),
+        }
+    }
+
+    pub(crate) const fn cell_count(self) -> usize {
+        self.side * self.side
+    }
+
+    pub(crate) fn index(self, cell: Cell) -> Option<usize> {
+        let x = usize::try_from(i64::from(cell.x) - i64::from(self.min_cell)).ok()?;
+        let z = usize::try_from(i64::from(cell.z) - i64::from(self.min_cell)).ok()?;
+        (x < self.side && z < self.side).then_some(x * self.side + z)
+    }
+}
+
+/// Dense copy of a blocked-cell set for the many membership tests of one search.
+struct BlockedGrid {
+    bounds: GridBounds,
+    cells: Vec<bool>,
+}
+
+impl BlockedGrid {
+    fn new(bounds: GridBounds, blocked: &BTreeSet<Cell>) -> Self {
+        let mut cells = vec![false; bounds.cell_count()];
+        for index in blocked.iter().filter_map(|cell| bounds.index(*cell)) {
+            cells[index] = true;
+        }
+        Self { bounds, cells }
+    }
+}
+
+trait BlockedCells {
+    fn is_blocked(&self, cell: Cell) -> bool;
+}
+
+impl BlockedCells for BlockedGrid {
+    fn is_blocked(&self, cell: Cell) -> bool {
+        self.bounds
+            .index(cell)
+            .is_some_and(|index| self.cells[index])
+    }
+}
+
+impl BlockedCells for BTreeSet<Cell> {
+    fn is_blocked(&self, cell: Cell) -> bool {
+        self.contains(&cell)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -69,9 +129,16 @@ pub(crate) fn astar(
         });
     }
 
+    let bounds = GridBounds::new(min_cell, max_cell);
+    // Callers clamp both cells to the grid, so every search state has an index.
+    let Some(start_index) = bounds.index(start) else {
+        debug_assert!(false, "search start {start:?} must lie inside the grid");
+        return None;
+    };
+    let blocked = BlockedGrid::new(bounds, blocked);
     let mut open = BinaryHeap::new();
-    let mut best_g = BTreeMap::new();
-    let mut came_from = BTreeMap::new();
+    let mut best_g = vec![u32::MAX; bounds.cell_count()];
+    let mut came_from = vec![None; bounds.cell_count()];
     let mut expanded = 0_u32;
 
     open.push(OpenNode {
@@ -79,42 +146,40 @@ pub(crate) fn astar(
         g: 0,
         h: manhattan(start, goal),
     });
-    best_g.insert(start, 0_u32);
+    best_g[start_index] = 0;
 
     while let Some(current) = open.pop() {
         if current.cell == goal {
-            let raw_path = reconstruct_path(start, goal, &came_from);
+            let raw_path = reconstruct_path(start, goal, bounds, &came_from);
             return Some(PathSearch {
-                path: smooth_path(&raw_path, blocked),
+                path: smooth_path(&raw_path, &blocked),
                 expanded,
             });
         }
 
-        if best_g
-            .get(&current.cell)
-            .is_some_and(|known| current.g > *known)
-        {
+        let current_index = bounds
+            .index(current.cell)
+            .expect("open cells are in bounds");
+        if current.g > best_g[current_index] {
             continue;
         }
 
         expanded = expanded.saturating_add(1);
         for neighbor in neighbors(current.cell) {
-            if neighbor.x < min_cell
-                || neighbor.x > max_cell
-                || neighbor.z < min_cell
-                || neighbor.z > max_cell
-                || (neighbor != goal && blocked.contains(&neighbor))
-            {
+            let Some(neighbor_index) = bounds.index(neighbor) else {
+                continue;
+            };
+            if neighbor != goal && blocked.cells[neighbor_index] {
                 continue;
             }
 
             let next_g = current.g.saturating_add(1);
-            if best_g.get(&neighbor).is_some_and(|known| next_g >= *known) {
+            if next_g >= best_g[neighbor_index] {
                 continue;
             }
 
-            best_g.insert(neighbor, next_g);
-            came_from.insert(neighbor, current.cell);
+            best_g[neighbor_index] = next_g;
+            came_from[neighbor_index] = Some(current.cell);
             open.push(OpenNode {
                 cell: neighbor,
                 g: next_g,
@@ -126,7 +191,7 @@ pub(crate) fn astar(
     None
 }
 
-fn smooth_path(path: &[Cell], blocked: &BTreeSet<Cell>) -> Vec<Cell> {
+fn smooth_path(path: &[Cell], blocked: &impl BlockedCells) -> Vec<Cell> {
     if path.len() <= 2 {
         return path.to_vec();
     }
@@ -150,7 +215,7 @@ fn smooth_path(path: &[Cell], blocked: &BTreeSet<Cell>) -> Vec<Cell> {
     smoothed
 }
 
-fn line_of_sight(from: Cell, to: Cell, blocked: &BTreeSet<Cell>) -> bool {
+fn line_of_sight(from: Cell, to: Cell, blocked: &impl BlockedCells) -> bool {
     let dx = to.x - from.x;
     let dz = to.z - from.z;
     let steps = dx.unsigned_abs().max(dz.unsigned_abs());
@@ -165,7 +230,7 @@ fn line_of_sight(from: Cell, to: Cell, blocked: &BTreeSet<Cell>) -> bool {
             x: (from.x as f32 + dx as f32 * t).round() as i32,
             z: (from.z as f32 + dz as f32 * t).round() as i32,
         };
-        if current != to && blocked.contains(&current) {
+        if current != to && blocked.is_blocked(current) {
             return false;
         }
 
@@ -178,8 +243,8 @@ fn line_of_sight(from: Cell, to: Cell, blocked: &BTreeSet<Cell>) -> bool {
                 x: previous.x,
                 z: current.z,
             };
-            if (side_x != to && blocked.contains(&side_x))
-                || (side_z != to && blocked.contains(&side_z))
+            if (side_x != to && blocked.is_blocked(side_x))
+                || (side_z != to && blocked.is_blocked(side_z))
             {
                 return false;
             }
@@ -190,11 +255,16 @@ fn line_of_sight(from: Cell, to: Cell, blocked: &BTreeSet<Cell>) -> bool {
     true
 }
 
-fn reconstruct_path(start: Cell, goal: Cell, came_from: &BTreeMap<Cell, Cell>) -> Vec<Cell> {
+fn reconstruct_path(
+    start: Cell,
+    goal: Cell,
+    bounds: GridBounds,
+    came_from: &[Option<Cell>],
+) -> Vec<Cell> {
     let mut path = vec![goal];
     let mut current = goal;
     while current != start {
-        let Some(parent) = came_from.get(&current).copied() else {
+        let Some(parent) = bounds.index(current).and_then(|index| came_from[index]) else {
             return vec![start];
         };
         current = parent;
@@ -210,7 +280,7 @@ fn manhattan(left: Cell, right: Cell) -> u32 {
         .saturating_add(left.z.abs_diff(right.z))
 }
 
-fn neighbors(cell: Cell) -> [Cell; 4] {
+pub(crate) fn neighbors(cell: Cell) -> [Cell; 4] {
     [
         Cell {
             x: cell.x - 1,

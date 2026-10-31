@@ -1,11 +1,14 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeSet, VecDeque};
 
-use crate::navigation::Cell;
+use crate::navigation::{Cell, GridBounds, neighbors};
+
+const UNREACHED: u32 = u32::MAX;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FlowField {
     pub(crate) goal: Cell,
-    distances: BTreeMap<Cell, u32>,
+    bounds: GridBounds,
+    distances: Vec<u32>,
     pub(crate) expanded: u32,
 }
 
@@ -16,39 +19,51 @@ impl FlowField {
         min_cell: i32,
         max_cell: i32,
     ) -> Self {
-        let mut distances = BTreeMap::new();
+        let bounds = GridBounds::new(min_cell, max_cell);
+        let mut distances = vec![UNREACHED; bounds.cell_count()];
         let mut frontier = VecDeque::new();
-        distances.insert(goal, 0_u32);
-        frontier.push_back(goal);
+        // Callers clamp the goal to the grid.
+        let goal_index = bounds
+            .index(goal)
+            .expect("flow-field goal must lie inside the grid");
+        distances[goal_index] = 0;
+        frontier.push_back((goal, 0_u32));
         let mut expanded = 0_u32;
 
-        while let Some(cell) = frontier.pop_front() {
+        while let Some((cell, distance)) = frontier.pop_front() {
             expanded = expanded.saturating_add(1);
-            let distance = distances[&cell];
             for neighbor in neighbors(cell) {
-                if neighbor.x < min_cell
-                    || neighbor.x > max_cell
-                    || neighbor.z < min_cell
-                    || neighbor.z > max_cell
+                let Some(index) = bounds.index(neighbor) else {
+                    continue;
+                };
+                if distances[index] != UNREACHED
                     || (neighbor != goal && blocked.contains(&neighbor))
-                    || distances.contains_key(&neighbor)
                 {
                     continue;
                 }
-                distances.insert(neighbor, distance.saturating_add(1));
-                frontier.push_back(neighbor);
+                let next = distance.saturating_add(1);
+                distances[index] = next;
+                frontier.push_back((neighbor, next));
             }
         }
 
         Self {
             goal,
+            bounds,
             distances,
             expanded,
         }
     }
 
+    fn distance(&self, cell: Cell) -> Option<u32> {
+        self.bounds
+            .index(cell)
+            .map(|index| self.distances[index])
+            .filter(|distance| *distance != UNREACHED)
+    }
+
     pub(crate) fn next_cell(&self, current: Cell) -> Option<Cell> {
-        let current_distance = self.distances.get(&current).copied()?;
+        let current_distance = self.distance(current)?;
         if current_distance == 0 {
             return Some(current);
         }
@@ -56,9 +71,7 @@ impl FlowField {
         neighbors(current)
             .into_iter()
             .filter_map(|neighbor| {
-                self.distances
-                    .get(&neighbor)
-                    .copied()
+                self.distance(neighbor)
                     .filter(|distance| *distance < current_distance)
                     .map(|distance| (distance, neighbor))
             })
@@ -67,29 +80,9 @@ impl FlowField {
     }
 
     pub(crate) fn reachable_cells(&self) -> usize {
-        self.distances.len()
+        // The search expands each reachable cell exactly once.
+        self.expanded as usize
     }
-}
-
-fn neighbors(cell: Cell) -> [Cell; 4] {
-    [
-        Cell {
-            x: cell.x - 1,
-            z: cell.z,
-        },
-        Cell {
-            x: cell.x,
-            z: cell.z - 1,
-        },
-        Cell {
-            x: cell.x,
-            z: cell.z + 1,
-        },
-        Cell {
-            x: cell.x + 1,
-            z: cell.z,
-        },
-    ]
 }
 
 #[cfg(test)]
