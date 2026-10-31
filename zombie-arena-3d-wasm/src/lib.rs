@@ -18,7 +18,7 @@ use collision_lab::Algorithm;
 use flow_field::FlowField;
 use navigation::Cell;
 use rng::SplitMix64;
-use spatial_kernels::{Body, Pair};
+use spatial_kernels::{Body, BroadPhaseResult, Pair};
 use wasm_bindgen::prelude::*;
 
 #[cfg(test)]
@@ -165,6 +165,8 @@ pub struct ZombieArena3dWorld {
     flow_target_scratch: Vec<Option<[f32; 3]>>,
     bullet_survivor_scratch: Vec<Bullet>,
     collision_body_scratch: Vec<Body>,
+    resolved_bodies: Vec<Body>,
+    resolved_broad_phase: Option<(Algorithm, BroadPhaseResult)>,
     barricade_damage_scratch: Vec<f32>,
     seed: u64,
     rng: SplitMix64,
@@ -249,6 +251,8 @@ impl ZombieArena3dWorld {
             flow_target_scratch: Vec::new(),
             bullet_survivor_scratch: Vec::new(),
             collision_body_scratch: Vec::new(),
+            resolved_bodies: Vec::new(),
+            resolved_broad_phase: None,
             barricade_damage_scratch: Vec::new(),
             seed,
             rng: SplitMix64::new(seed ^ 0x5A33_445F_4152_454E),

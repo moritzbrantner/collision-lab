@@ -330,6 +330,8 @@ impl ZombieArena3dWorld {
             self.broad_phase_config(bodies.len()),
             &bodies,
         );
+        self.resolved_bodies.clear();
+        self.resolved_bodies.extend_from_slice(&bodies);
         self.collision_body_scratch = bodies;
 
         for pair in &result.pairs {
@@ -354,6 +356,7 @@ impl ZombieArena3dWorld {
                 self.separate_zombies(left, right);
             }
         }
+        self.resolved_broad_phase = Some((self.algorithm, result));
     }
 
     pub(crate) fn attack_barricades(&mut self) {
@@ -482,11 +485,20 @@ impl ZombieArena3dWorld {
     pub(crate) fn refresh_collision_metrics(&mut self) {
         let mut bodies = std::mem::take(&mut self.collision_body_scratch);
         self.fill_collision_bodies(&mut bodies);
-        let result = run_algorithm(
-            self.algorithm,
-            self.broad_phase_config(bodies.len()),
-            &bodies,
-        );
+        // Detection is a pure function of the algorithm and bodies, so the result
+        // from overlap resolution still holds if nothing has moved since.
+        let result = match self.resolved_broad_phase.take() {
+            Some((algorithm, result))
+                if algorithm == self.algorithm && self.resolved_bodies == bodies =>
+            {
+                result
+            }
+            _ => run_algorithm(
+                self.algorithm,
+                self.broad_phase_config(bodies.len()),
+                &bodies,
+            ),
+        };
         self.metrics.possible_pairs = possible_pair_count(bodies.len());
         self.collision_body_scratch = bodies;
         self.metrics.aabb_tests = result.stats.aabb_tests;

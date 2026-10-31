@@ -216,3 +216,26 @@ fn snapshot_json_keeps_sorted_keys_and_valid_structure() {
         }
     }
 }
+
+#[test]
+fn reused_broad_phase_matches_fresh_detection() {
+    for algorithm in Algorithm::ALL {
+        let mut world = ZombieArena3dWorld::new_inner(algorithm, 2_025);
+        for frame in 0..300 {
+            world.step([0.6, -0.4], [1.0, 0.0, 0.0], false, frame % 4 == 0);
+            let mut bodies = Vec::new();
+            world.fill_collision_bodies(&mut bodies);
+            let fresh = collision_lab::run_algorithm(
+                algorithm,
+                world.broad_phase_config(bodies.len()),
+                &bodies,
+            );
+            assert_eq!(world.metrics.overlap_pairs, fresh.pairs);
+            assert_eq!(world.metrics.aabb_tests, fresh.stats.aabb_tests);
+            assert_eq!(
+                world.metrics.occupied_cells,
+                fresh.stats.occupied_cells.unwrap_or(0)
+            );
+        }
+    }
+}
