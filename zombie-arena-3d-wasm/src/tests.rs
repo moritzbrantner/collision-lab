@@ -176,3 +176,43 @@ fn zombie_id_lookup_remains_correct_with_gaps() {
         .expect("retained zombie should exist");
     assert_eq!(world.zombie_index(retained_id), Some(expected));
 }
+
+/// Collapses each number to `#`; serde_json's default float parser may round
+/// the last digit, so the round trip below compares structure and key order.
+fn with_numbers_masked(json: &str) -> String {
+    let mut masked = String::with_capacity(json.len());
+    let mut in_number = false;
+    for character in json.chars() {
+        let numeric = character.is_ascii_digit() || matches!(character, '-' | '.');
+        if !numeric {
+            masked.push(character);
+        } else if !in_number {
+            masked.push('#');
+        }
+        in_number = numeric;
+    }
+    masked
+}
+
+#[test]
+fn snapshot_json_keeps_sorted_keys_and_valid_structure() {
+    for mode in [NavigationMode::Astar, NavigationMode::FlowField] {
+        let mut world = ZombieArena3dWorld::new_inner(Algorithm::UniformGrid, 2_024);
+        world.navigation_mode = mode;
+        world.invalidate_navigation();
+        world
+            .build_json(8.0, 8.0)
+            .expect("free cell should accept a barricade");
+        for frame in 0..240 {
+            world.step([1.0, 0.25], [0.5, 0.1, -1.0], frame % 50 == 0, true);
+            let snapshot = world.snapshot().expect("snapshot should serialize");
+            let parsed: serde_json::Value =
+                serde_json::from_str(&snapshot).expect("snapshot should be valid JSON");
+            let canonical = serde_json::to_string(&parsed).expect("value should serialize");
+            assert_eq!(
+                with_numbers_masked(&canonical),
+                with_numbers_masked(&snapshot)
+            );
+        }
+    }
+}
