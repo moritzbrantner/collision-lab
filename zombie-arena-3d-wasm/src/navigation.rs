@@ -5,10 +5,8 @@ use std::{
 
 use wasm_bindgen::prelude::*;
 
-use super::{
-    NAV_CELL, NAV_MAX, NAV_MIN, PLAYER_HALF, ZOMBIE_HALF, ZombieArena3dWorld, aabb_overlaps,
-    actor_aabb, wall_aabb,
-};
+use crate::collision::{aabb_overlaps, actor_aabb, wall_aabb};
+use crate::{NAV_CELL, NAV_MAX, NAV_MIN, PLAYER_HALF, Wall, ZOMBIE_HALF, ZombieArena3dWorld};
 
 const BUILT_WALL_ID_BASE: u32 = 10_000;
 const BARRICADE_HALF: [f32; 3] = [0.46, 0.72, 0.46];
@@ -245,7 +243,7 @@ impl ZombieArena3dWorld {
             return Err(JsValue::from_str("barricades must stay inside the arena"));
         }
 
-        let candidate = super::Wall {
+        let candidate = Wall {
             id: self.next_barricade_id(),
             position: cell_center(cell),
             half: BARRICADE_HALF,
@@ -282,9 +280,8 @@ impl ZombieArena3dWorld {
 
         let cell = snap_cell(world_x, world_z);
         let before = self.walls.len();
-        self.walls.retain(|wall| {
-            wall.id < BUILT_WALL_ID_BASE || super::world_to_cell(wall.position) != cell
-        });
+        self.walls
+            .retain(|wall| wall.id < BUILT_WALL_ID_BASE || world_to_cell(wall.position) != cell);
         if self.walls.len() == before {
             return Err(JsValue::from_str(
                 "there is no built barricade in that cell",
@@ -309,7 +306,7 @@ impl ZombieArena3dWorld {
     }
 
     pub(crate) fn invalidate_navigation(&mut self) {
-        self.blocked_navigation = super::blocked_navigation_cells(&self.walls);
+        self.blocked_navigation = blocked_navigation_cells(&self.walls);
         self.navigation_cache_rebuilds_total =
             self.navigation_cache_rebuilds_total.saturating_add(1);
         self.flow_field = None;
@@ -337,6 +334,41 @@ fn cell_center(cell: Cell) -> [f32; 3] {
     [
         cell.x as f32 * NAV_CELL,
         BARRICADE_HALF[1],
+        cell.z as f32 * NAV_CELL,
+    ]
+}
+
+pub(crate) fn blocked_navigation_cells(walls: &[Wall]) -> BTreeSet<Cell> {
+    let mut blocked = BTreeSet::new();
+    for x in NAV_MIN..=NAV_MAX {
+        for z in NAV_MIN..=NAV_MAX {
+            let center = [x as f32 * NAV_CELL, ZOMBIE_HALF[1], z as f32 * NAV_CELL];
+            if walls.iter().any(|wall| {
+                (center[0] - wall.position[0]).abs() < ZOMBIE_HALF[0] + wall.half[0]
+                    && (center[2] - wall.position[2]).abs() < ZOMBIE_HALF[2] + wall.half[2]
+            }) {
+                blocked.insert(Cell { x, z });
+            }
+        }
+    }
+    blocked
+}
+
+pub(crate) fn world_to_cell(position: [f32; 3]) -> Cell {
+    Cell {
+        x: (position[0] / NAV_CELL)
+            .round()
+            .clamp(NAV_MIN as f32, NAV_MAX as f32) as i32,
+        z: (position[2] / NAV_CELL)
+            .round()
+            .clamp(NAV_MIN as f32, NAV_MAX as f32) as i32,
+    }
+}
+
+pub(crate) fn cell_to_world(cell: Cell) -> [f32; 3] {
+    [
+        cell.x as f32 * NAV_CELL,
+        ZOMBIE_HALF[1],
         cell.z as f32 * NAV_CELL,
     ]
 }
