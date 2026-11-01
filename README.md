@@ -34,7 +34,7 @@ Explanation teaches **why** an algorithm works. Experiment explores **when** it 
 
 - **Zombie Arena** combines broad-phase selection, projectile sweeps, and buildable obstacles in a top-down workload.
 - **Zombie Arena 3D** adds vertical movement, A* and flow-field navigation, and 3D projectile CCD.
-- **Blue-noise terrain** generates a deterministic indexed heightfield from best-candidate blue-noise sites. Rust owns the mesh, exact support-triangle query, contact normal, and walker state; Three.js renders that evidence.
+- **Blue-noise terrain** generates a deterministic indexed heightfield from best-candidate blue-noise sites. Rust owns the mesh and the scenario; Rapier (`rapier3d` 0.36.1) owns the terrain collider, capsule character controller, grounded state and the support ray that reports the active triangle and contact normal. Three.js renders that evidence.
 
 ## Current broad phases
 

@@ -45,8 +45,8 @@ type TerrainSnapshot = {
     normal: Vec3;
     vertices: [Vec3, Vec3, Vec3];
   };
-  triangleQueries: number;
-  totalTriangleQueries: number;
+  engineQueries: number;
+  totalEngineQueries: number;
 };
 
 type RenderResources = {
@@ -401,7 +401,7 @@ export function BlueNoiseTerrainScenario() {
         </label>
         {terrain && snapshot ? (
           <p className="ml-auto text-xs leading-5 text-zinc-500" aria-live="polite">
-            {terrain.stats.triangles.toLocaleString()} triangles · {terrain.stats.blueNoiseSites} sites · active triangle {snapshot.contact.triangle} · slope {slopeDegrees.toFixed(1)}° · {snapshot.triangleQueries} queries/frame
+            {terrain.stats.triangles.toLocaleString()} triangles · {terrain.stats.blueNoiseSites} sites · active triangle {snapshot.contact.triangle} · slope {slopeDegrees.toFixed(1)}° · {snapshot.engineQueries} Rapier queries/frame
           </p>
         ) : null}
       </div>
@@ -427,7 +427,7 @@ export function BlueNoiseTerrainScenario() {
           <span className="hidden sm:inline">WASD / arrows move · Space jumps · Drag rotates · Wheel zooms</span>
           <span className="sm:hidden">Use the controls to move and jump</span>
           <br />
-          Rust triangle {snapshot?.contact.triangle ?? "—"} · {snapshot?.grounded ? "grounded" : "airborne"}
+          Rapier triangle {snapshot?.contact.triangle ?? "—"} · {snapshot?.grounded ? "grounded" : "airborne"}
         </div>
         <div className="absolute bottom-4 left-4 grid grid-cols-3 gap-2 sm:hidden">
           <span />
@@ -452,7 +452,7 @@ export function BlueNoiseTerrainScenario() {
         <details className="border-t border-zinc-800 px-4 py-3 text-sm text-zinc-400">
           <summary className="cursor-pointer font-medium text-zinc-300">Deterministic generation evidence</summary>
           <p className="mt-3 max-w-4xl leading-6">
-            Rust selected each site from {terrain.stats.candidatesPerSite} candidates by maximizing its wrapped distance from accepted sites, then built one indexed {terrain.gridSize} × {terrain.gridSize} heightfield. The walker samples the exact visible triangle; the highlighted face and normal come from that query.
+            Rust selected each site from {terrain.stats.candidatesPerSite} candidates by maximizing its wrapped distance from accepted sites, then built one indexed {terrain.gridSize} × {terrain.gridSize} heightfield. Rapier holds that mesh as one persistent triangle-mesh collider and moves the capsule walker with its kinematic character controller; the highlighted face and normal are the triangle a Rapier ray cast finds below the walker.
           </p>
           <p className="mt-2 font-mono text-xs text-zinc-500">
             {terrain.stats.candidateEvaluations.toLocaleString()} candidate evaluations · {terrain.stats.heightContributions.toLocaleString()} height contributions · minimum wrapped site spacing {terrain.stats.minimumSiteDistance.toFixed(3)}
