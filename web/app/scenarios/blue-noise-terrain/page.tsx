@@ -22,7 +22,7 @@ export default function BlueNoiseTerrainPage() {
           </h1>
         </div>
         <p className="max-w-xl text-sm leading-6 text-zinc-400">
-          Walk and jump on the actual indexed mesh. The cyan face and normal are the Rust-owned support query, not a renderer approximation.
+          Walk and jump on the actual indexed mesh. Rapier owns collision, slopes and grounding; the cyan face and normal are its support query, not a renderer approximation.
         </p>
       </div>
       <BlueNoiseTerrainScenario />

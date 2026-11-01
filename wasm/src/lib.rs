@@ -44,10 +44,10 @@ impl BlueNoiseTerrainWorld {
             "worldHalf": config.world_half,
             "heightScale": config.height_scale,
             "sites": terrain.sites().iter().map(|site| {
-                let contact = terrain.contact_at(site.position[0], site.position[1]);
+                let contact = self.world.support_at(site.position[0], site.position[1]);
                 json!({
                     "position": site.position,
-                    "surfaceHeight": contact.height,
+                    "surfaceHeight": contact.map_or(0.0, |contact| contact.height),
                     "amplitude": site.amplitude,
                 })
             }).collect::<Vec<_>>(),
@@ -92,8 +92,8 @@ fn terrain_snapshot_json(world: &TerrainWorld) -> Result<String, JsValue> {
             "normal": snapshot.contact.normal,
             "vertices": snapshot.contact.vertices,
         },
-        "triangleQueries": snapshot.triangle_queries,
-        "totalTriangleQueries": snapshot.total_triangle_queries,
+        "engineQueries": snapshot.engine_queries,
+        "totalEngineQueries": snapshot.total_engine_queries,
     }))
     .map_err(|error| JsValue::from_str(&error.to_string()))
 }

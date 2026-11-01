@@ -3,8 +3,22 @@ const WALKER_HALF_HEIGHT: f32 = 0.85;
 const WALKER_SPEED: f32 = 5.2;
 const JUMP_IMPULSE: f32 = 6.4;
 const GRAVITY: f32 = -17.0;
-const MAX_WALKABLE_SLOPE_Y: f32 = 0.48;
-const MAX_STEP_HEIGHT: f32 = 0.36;
+/// The walker capsule's radius; `WALKER_HALF_HEIGHT` is its center-to-bottom distance.
+const WALKER_RADIUS: f32 = 0.34;
+/// Steepest climbable slope: `acos(0.48)`, about 61.3 degrees.
+const MAX_SLOPE_CLIMB_ANGLE: f32 = 1.070_142;
+/// Rapier character-controller skin between the capsule and the terrain.
+const CONTACT_OFFSET: f32 = 0.01;
+/// How far a walking capsule is pulled down onto the ground below it each step.
+const SNAP_TO_GROUND: f32 = 0.3;
+/// Half thickness of the boundary walls around the terrain.
+const WALL_THICKNESS: f32 = 0.5;
+/// Height above the tallest possible terrain from which support rays start.
+const SUPPORT_RAY_CLEARANCE: f32 = 1.0;
+
+use rapier3d::control::{CharacterLength, KinematicCharacterController};
+use rapier3d::parry::query::DefaultQueryDispatcher;
+use rapier3d::prelude::*;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BlueNoiseTerrainConfig {
@@ -155,50 +169,6 @@ impl BlueNoiseTerrain {
     pub fn triangle_count(&self) -> usize {
         self.indices.len() / 3
     }
-
-    #[must_use]
-    pub fn contact_at(&self, x: f32, z: f32) -> TerrainContact {
-        let grid_size = self.config.grid_size;
-        let cell_size = self.cell_size();
-        let max_cell = grid_size - 2;
-        let x = x.clamp(-self.config.world_half, self.config.world_half);
-        let z = z.clamp(-self.config.world_half, self.config.world_half);
-        let grid_x =
-            ((x + self.config.world_half) / cell_size).min((grid_size - 1) as f32 - f32::EPSILON);
-        let grid_z =
-            ((z + self.config.world_half) / cell_size).min((grid_size - 1) as f32 - f32::EPSILON);
-        let cell_x = (grid_x.floor() as usize).min(max_cell);
-        let cell_z = (grid_z.floor() as usize).min(max_cell);
-        let local_x = grid_x - cell_x as f32;
-        let local_z = grid_z - cell_z as f32;
-        let cell_index = cell_z * (grid_size - 1) + cell_x;
-        let first_triangle = if (cell_x + cell_z) % 2 == 0 {
-            local_z >= local_x
-        } else {
-            local_x + local_z <= 1.0
-        };
-        let triangle_in_cell = if first_triangle { 0 } else { 1 };
-        let index_offset = (cell_index * 2 + triangle_in_cell) * 3;
-        let vertices = [
-            self.vertices[self.indices[index_offset] as usize],
-            self.vertices[self.indices[index_offset + 1] as usize],
-            self.vertices[self.indices[index_offset + 2] as usize],
-        ];
-        let height = barycentric_height(x, z, vertices);
-        let normal = triangle_normal(vertices);
-
-        TerrainContact {
-            triangle: u32::try_from(cell_index * 2 + triangle_in_cell)
-                .expect("validated terrain grid fits triangle identifiers"),
-            height,
-            normal,
-            vertices,
-        }
-    }
-
-    fn cell_size(&self) -> f32 {
-        self.config.world_half * 2.0 / (self.config.grid_size - 1) as f32
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -208,36 +178,120 @@ pub struct TerrainWalkerSnapshot {
     pub velocity_y: f32,
     pub grounded: bool,
     pub contact: TerrainContact,
-    pub triangle_queries: u64,
-    pub total_triangle_queries: u64,
+    /// Rapier queries issued during the last step (one controller move, one support ray).
+    pub engine_queries: u64,
+    pub total_engine_queries: u64,
 }
 
-#[derive(Clone, Debug)]
+/// The walker on the blue-noise terrain, with Rapier as the collision and support authority.
+///
+/// The terrain is one persistent Rapier triangle-mesh collider built from the generated index
+/// buffer, so Rapier's triangle ids are the lab's triangle ids. Four static walls keep the walker
+/// on the terrain. The walker is a capsule moved by Rapier's `KinematicCharacterController`,
+/// which owns sliding, slope limits, ground snapping and the grounded state; the lab owns only
+/// movement intent (speed, jump impulse and gravity). The support evidence (active triangle,
+/// height and normal) is a Rapier ray cast straight down from the capsule's center.
 pub struct BlueNoiseTerrainWorld {
     terrain: BlueNoiseTerrain,
+    physics: PhysicsWorld,
+    terrain_collider: ColliderHandle,
+    walker: Capsule,
+    walking: KinematicCharacterController,
+    airborne: KinematicCharacterController,
     position: [f32; 3],
     velocity_y: f32,
     grounded: bool,
     frame: u64,
-    triangle_queries: u64,
-    total_triangle_queries: u64,
+    engine_queries: u64,
+    total_engine_queries: u64,
     contact: TerrainContact,
 }
 
 impl BlueNoiseTerrainWorld {
     pub fn new(config: BlueNoiseTerrainConfig) -> Result<Self, String> {
         let terrain = BlueNoiseTerrain::generate(config)?;
-        let contact = terrain.contact_at(0.0, 0.0);
-        Ok(Self {
+        let mut physics = PhysicsWorld::new();
+        // Gravity and jumps are movement intent the lab owns: no Rapier body is dynamic.
+        physics.gravity = Vector::ZERO;
+        physics.integration_parameters.dt = FIXED_DT;
+
+        let vertices = terrain
+            .vertices()
+            .iter()
+            .map(|vertex| Vector::new(vertex[0], vertex[1], vertex[2]))
+            .collect();
+        let indices = terrain
+            .indices()
+            .chunks_exact(3)
+            .map(|triangle| [triangle[0], triangle[1], triangle[2]])
+            .collect();
+        // Fixing internal edges keeps the capsule from catching on shared triangle edges; it
+        // keeps the triangle order, so Rapier's triangle ids match the index buffer.
+        let terrain_collider = physics.colliders.insert(
+            ColliderBuilder::trimesh_with_flags(
+                vertices,
+                indices,
+                TriMeshFlags::FIX_INTERNAL_EDGES,
+            )
+            .map_err(|error| format!("Rapier rejected the terrain mesh: {error}"))?
+            .build(),
+        );
+        insert_walls(&mut physics, terrain.config());
+        physics.detect_collisions(&(), &());
+
+        let airborne = KinematicCharacterController {
+            up: Vector::Y,
+            offset: CharacterLength::Absolute(CONTACT_OFFSET),
+            slide: true,
+            autostep: None,
+            max_slope_climb_angle: MAX_SLOPE_CLIMB_ANGLE,
+            min_slope_slide_angle: MAX_SLOPE_CLIMB_ANGLE,
+            snap_to_ground: None,
+            normal_nudge_factor: KinematicCharacterController::default().normal_nudge_factor,
+        };
+        let walking = KinematicCharacterController {
+            snap_to_ground: Some(CharacterLength::Absolute(SNAP_TO_GROUND)),
+            ..airborne
+        };
+
+        let mut world = Self {
             terrain,
-            position: [0.0, contact.height + WALKER_HALF_HEIGHT, 0.0],
+            physics,
+            terrain_collider,
+            walker: Capsule::new_y(WALKER_HALF_HEIGHT - WALKER_RADIUS, WALKER_RADIUS),
+            walking,
+            airborne,
+            position: [0.0, 0.0, 0.0],
             velocity_y: 0.0,
-            grounded: true,
+            grounded: false,
             frame: 0,
-            triangle_queries: 1,
-            total_triangle_queries: 1,
-            contact,
-        })
+            engine_queries: 0,
+            total_engine_queries: 0,
+            contact: TerrainContact {
+                triangle: 0,
+                height: 0.0,
+                normal: [0.0, 1.0, 0.0],
+                vertices: [[0.0; 3]; 3],
+            },
+        };
+        let spawn = world
+            .support_at(0.0, 0.0)
+            .ok_or_else(|| "the terrain has no support at the spawn point".to_owned())?;
+        // Rest the capsule's lower sphere on the spawn triangle's plane, then let the
+        // controller settle it.
+        world.position = [
+            0.0,
+            spawn.height
+                + WALKER_HALF_HEIGHT
+                + WALKER_RADIUS * (1.0 / spawn.normal[1] - 1.0)
+                + CONTACT_OFFSET,
+            0.0,
+        ];
+        world.contact = spawn;
+        world.move_walker(Vector::new(0.0, -SNAP_TO_GROUND, 0.0), true);
+        world.engine_queries = world.engine_queries.saturating_add(1);
+        world.total_engine_queries = world.engine_queries;
+        Ok(world)
     }
 
     #[must_use]
@@ -253,61 +307,117 @@ impl BlueNoiseTerrainWorld {
             velocity_y: self.velocity_y,
             grounded: self.grounded,
             contact: self.contact,
-            triangle_queries: self.triangle_queries,
-            total_triangle_queries: self.total_triangle_queries,
+            engine_queries: self.engine_queries,
+            total_engine_queries: self.total_engine_queries,
         }
+    }
+
+    /// The terrain triangle straight below `(x, z)`, as Rapier's ray cast reports it.
+    #[must_use]
+    pub fn support_at(&self, x: f32, z: f32) -> Option<TerrainContact> {
+        let collider = &self.physics.colliders[self.terrain_collider];
+        let mesh = collider.shape().as_trimesh()?;
+        let top = self.terrain.config().height_scale + SUPPORT_RAY_CLEARANCE;
+        let ray = Ray::new(Vector::new(x, top, z), -Vector::Y);
+        let hit = collider.shape().cast_ray_and_get_normal(
+            collider.position(),
+            &ray,
+            top + self.terrain.config().height_scale + SUPPORT_RAY_CLEARANCE,
+            true,
+        )?;
+        let triangle = mesh.triangle(hit.subshape);
+        Some(TerrainContact {
+            triangle: hit.subshape,
+            height: ray.point_at(hit.time_of_impact).y,
+            normal: hit.normal.into(),
+            vertices: [triangle.a.into(), triangle.b.into(), triangle.c.into()],
+        })
     }
 
     pub fn step(&mut self, movement: [f32; 2], jump: bool) -> TerrainWalkerSnapshot {
         self.frame = self.frame.saturating_add(1);
-        self.triangle_queries = 0;
+        self.engine_queries = 0;
         let movement = normalize2_or_zero(movement);
         let distance = WALKER_SPEED * FIXED_DT;
-        let was_grounded = self.grounded;
-
-        for (axis, amount) in [(0, movement[0] * distance), (2, movement[1] * distance)] {
-            let mut candidate = self.position;
-            candidate[axis] = (candidate[axis] + amount).clamp(
-                -self.terrain.config.world_half + 0.35,
-                self.terrain.config.world_half - 0.35,
-            );
-            let candidate_contact = self.query_contact(candidate[0], candidate[2]);
-            let height_delta = candidate_contact.height - self.contact.height;
-            if !was_grounded
-                || (candidate_contact.normal[1] >= MAX_WALKABLE_SLOPE_Y
-                    && height_delta <= MAX_STEP_HEIGHT)
-            {
-                self.position[axis] = candidate[axis];
-                self.contact = candidate_contact;
-            }
-        }
-
+        let walking = self.grounded && !jump;
         if jump && self.grounded {
             self.velocity_y = JUMP_IMPULSE;
-            self.grounded = false;
         }
-
-        if self.grounded {
-            self.position[1] = self.contact.height + WALKER_HALF_HEIGHT;
-        } else {
-            self.velocity_y += GRAVITY * FIXED_DT;
-            self.position[1] += self.velocity_y * FIXED_DT;
-            self.contact = self.query_contact(self.position[0], self.position[2]);
-            let support_y = self.contact.height + WALKER_HALF_HEIGHT;
-            if self.position[1] <= support_y && self.velocity_y <= 0.0 {
-                self.position[1] = support_y;
-                self.velocity_y = 0.0;
-                self.grounded = true;
-            }
-        }
-
+        self.velocity_y += GRAVITY * FIXED_DT;
+        let desired = Vector::new(
+            movement[0] * distance,
+            self.velocity_y * FIXED_DT,
+            movement[1] * distance,
+        );
+        self.move_walker(desired, walking);
+        self.total_engine_queries = self
+            .total_engine_queries
+            .saturating_add(self.engine_queries);
         self.snapshot()
     }
 
-    fn query_contact(&mut self, x: f32, z: f32) -> TerrainContact {
-        self.triangle_queries = self.triangle_queries.saturating_add(1);
-        self.total_triangle_queries = self.total_triangle_queries.saturating_add(1);
-        self.terrain.contact_at(x, z)
+    /// One controller move plus the support ray under the new position.
+    fn move_walker(&mut self, desired: Vector, walking: bool) {
+        let queries = self.physics.broad_phase.as_query_pipeline(
+            &DefaultQueryDispatcher,
+            &self.physics.bodies,
+            &self.physics.colliders,
+            QueryFilter::default(),
+        );
+        let controller = if walking {
+            &self.walking
+        } else {
+            &self.airborne
+        };
+        let movement = controller.move_shape(
+            FIXED_DT,
+            &queries,
+            &self.walker,
+            &Pose::from_translation(Vector::from(self.position)),
+            desired,
+            |_| {},
+        );
+        self.position = (Vector::from(self.position) + movement.translation).into();
+        // A rising walker is never grounded, even while it is still within the contact offset.
+        self.grounded = movement.grounded && self.velocity_y <= 0.0;
+        if self.grounded {
+            self.velocity_y = 0.0;
+        }
+        if let Some(contact) = self.support_at(self.position[0], self.position[2]) {
+            self.contact = contact;
+        }
+        self.engine_queries = self.engine_queries.saturating_add(2);
+    }
+}
+
+/// Static walls just outside the walker's reach on every side, high enough for any jump.
+fn insert_walls(physics: &mut PhysicsWorld, config: BlueNoiseTerrainConfig) {
+    let inner = config.world_half;
+    let half_height = config.height_scale + 6.0;
+    let half_length = config.world_half + WALL_THICKNESS;
+    for (center, half_extents) in [
+        (
+            [inner + WALL_THICKNESS, 0.0, 0.0],
+            [WALL_THICKNESS, half_height, half_length],
+        ),
+        (
+            [-inner - WALL_THICKNESS, 0.0, 0.0],
+            [WALL_THICKNESS, half_height, half_length],
+        ),
+        (
+            [0.0, 0.0, inner + WALL_THICKNESS],
+            [half_length, half_height, WALL_THICKNESS],
+        ),
+        (
+            [0.0, 0.0, -inner - WALL_THICKNESS],
+            [half_length, half_height, WALL_THICKNESS],
+        ),
+    ] {
+        physics.colliders.insert(
+            ColliderBuilder::cuboid(half_extents[0], half_extents[1], half_extents[2])
+                .translation(Vector::from(center))
+                .build(),
+        );
     }
 }
 
@@ -437,27 +547,6 @@ fn random_site(rng: &mut SplitMix64, world_half: f32) -> [f32; 2] {
     ]
 }
 
-fn barycentric_height(x: f32, z: f32, vertices: [[f32; 3]; 3]) -> f32 {
-    let [a, b, c] = vertices;
-    let denominator = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2]);
-    let a_weight = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / denominator;
-    let b_weight = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / denominator;
-    let c_weight = 1.0 - a_weight - b_weight;
-    a_weight * a[1] + b_weight * b[1] + c_weight * c[1]
-}
-
-fn triangle_normal(vertices: [[f32; 3]; 3]) -> [f32; 3] {
-    let first = sub3(vertices[1], vertices[0]);
-    let second = sub3(vertices[2], vertices[0]);
-    let cross = [
-        first[1] * second[2] - first[2] * second[1],
-        first[2] * second[0] - first[0] * second[2],
-        first[0] * second[1] - first[1] * second[0],
-    ];
-    let length = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
-    [cross[0] / length, cross[1] / length, cross[2] / length]
-}
-
 fn normalize2_or_zero(value: [f32; 2]) -> [f32; 2] {
     let length_squared = value[0] * value[0] + value[1] * value[1];
     if length_squared <= f32::EPSILON {
@@ -466,10 +555,6 @@ fn normalize2_or_zero(value: [f32; 2]) -> [f32; 2] {
         let inverse = length_squared.sqrt().recip();
         [value[0] * inverse, value[1] * inverse]
     }
-}
-
-fn sub3(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {
-    [left[0] - right[0], left[1] - right[1], left[2] - right[2]]
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -524,44 +609,110 @@ mod tests {
     }
 
     #[test]
-    fn contact_height_is_interpolated_from_the_selected_mesh_triangle() {
-        let terrain = BlueNoiseTerrain::generate(BlueNoiseTerrainConfig::default())
+    fn rapier_support_reports_the_index_buffer_triangle_and_its_plane() {
+        let world = BlueNoiseTerrainWorld::new(BlueNoiseTerrainConfig::default())
             .expect("default terrain is valid");
-        let contact = terrain.contact_at(2.37, -4.81);
-        let expected = barycentric_height(2.37, -4.81, contact.vertices);
+        let terrain = world.terrain();
+        for (x, z) in [(2.37, -4.81), (0.0, 0.0), (-9.1, 7.3), (11.2, 11.9)] {
+            let contact = world.support_at(x, z).expect("terrain covers the point");
+            let offset = contact.triangle as usize * 3;
+            let expected_vertices = [
+                terrain.vertices()[terrain.indices()[offset] as usize],
+                terrain.vertices()[terrain.indices()[offset + 1] as usize],
+                terrain.vertices()[terrain.indices()[offset + 2] as usize],
+            ];
 
-        assert!((contact.height - expected).abs() <= f32::EPSILON);
-        assert!(contact.normal[1] > 0.0);
-        assert!((length3(contact.normal) - 1.0).abs() < 1.0e-5);
+            assert_eq!(contact.vertices, expected_vertices);
+            assert!((contact.height - barycentric_height(x, z, contact.vertices)).abs() < 1.0e-4);
+            assert!(contact.normal[1] > 0.0);
+            assert!((length3(contact.normal) - 1.0).abs() < 1.0e-5);
+        }
     }
 
     #[test]
-    fn walker_remains_supported_by_the_authoritative_mesh() {
+    fn walker_remains_supported_by_the_rapier_mesh() {
         let mut world = BlueNoiseTerrainWorld::new(BlueNoiseTerrainConfig::default())
             .expect("default terrain is valid");
+        assert!(world.snapshot().grounded);
         for _ in 0..180 {
             world.step([1.0, 0.35], false);
         }
         let snapshot = world.snapshot();
         let contact = world
-            .terrain()
-            .contact_at(snapshot.position[0], snapshot.position[2]);
+            .support_at(snapshot.position[0], snapshot.position[2])
+            .expect("the walker stays above the terrain");
+        // A capsule resting on a plane with normal `n` has its center `r / n.y - r` above the
+        // height a vertical line through its center meets, on top of its flat-ground height.
+        let resting =
+            WALKER_HALF_HEIGHT + WALKER_RADIUS * (1.0 / contact.normal[1] - 1.0) + CONTACT_OFFSET;
 
         assert!(snapshot.grounded);
-        assert!((snapshot.position[1] - (contact.height + WALKER_HALF_HEIGHT)).abs() < 1.0e-5);
-        assert!(snapshot.total_triangle_queries > snapshot.frame);
+        assert!(snapshot.position[0] > 4.0, "the walker crossed the terrain");
+        assert!(
+            (snapshot.position[1] - contact.height - resting).abs() < 0.1,
+            "center {} above support {} (expected {resting})",
+            snapshot.position[1],
+            contact.height,
+        );
+        assert!(snapshot.total_engine_queries > snapshot.frame);
+    }
+
+    #[test]
+    fn walls_keep_the_walker_on_the_terrain() {
+        let mut world = BlueNoiseTerrainWorld::new(BlueNoiseTerrainConfig::default())
+            .expect("default terrain is valid");
+        let limit = BlueNoiseTerrainConfig::default().world_half - WALKER_RADIUS + 1.0e-3;
+        for _ in 0..360 {
+            let snapshot = world.step([-1.0, 1.0], false);
+            assert!(snapshot.position[0].abs() <= limit && snapshot.position[2].abs() <= limit);
+        }
     }
 
     #[test]
     fn jumping_leaves_and_returns_to_the_mesh() {
         let mut world = BlueNoiseTerrainWorld::new(BlueNoiseTerrainConfig::default())
             .expect("default terrain is valid");
+        let start = world.snapshot().position[1];
         world.step([0.0, 0.0], true);
         assert!(!world.snapshot().grounded);
+        let mut apex = start;
         for _ in 0..120 {
-            world.step([0.0, 0.0], false);
+            apex = apex.max(world.step([0.0, 0.0], false).position[1]);
         }
-        assert!(world.snapshot().grounded);
+        // Ballistic apex: v^2 / 2g = 6.4^2 / 34, about 1.2 m, less discretization.
+        assert!(
+            apex - start > 1.0 && apex - start < 1.3,
+            "apex rise {}",
+            apex - start
+        );
+        let landed = world.snapshot();
+        assert!(landed.grounded);
+        assert!((landed.position[1] - start).abs() < 0.05);
+    }
+
+    #[test]
+    fn same_inputs_replay_identically() {
+        let run = || {
+            let mut world = BlueNoiseTerrainWorld::new(BlueNoiseTerrainConfig::default())
+                .expect("default terrain is valid");
+            (0..240)
+                .map(|frame| {
+                    let angle = frame as f32 * 0.03;
+                    world.step([angle.cos(), angle.sin()], frame % 70 == 0)
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(run(), run());
+    }
+
+    /// Independent reference: the height of the triangle's plane at `(x, z)`.
+    fn barycentric_height(x: f32, z: f32, vertices: [[f32; 3]; 3]) -> f32 {
+        let [a, b, c] = vertices;
+        let denominator = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2]);
+        let a_weight = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / denominator;
+        let b_weight = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / denominator;
+        let c_weight = 1.0 - a_weight - b_weight;
+        a_weight * a[1] + b_weight * b[1] + c_weight * c[1]
     }
 
     fn length3(value: [f32; 3]) -> f32 {
