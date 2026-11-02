@@ -10,6 +10,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 serde_json = "1"
-three-d-animation = { git = "https://github.com/moritzbrantner/3d-lab", rev = "2ef8cc9488d5ad0e3bf87cde5e09674ac6cee4d9" }
-three-d-core = { git = "https://github.com/moritzbrantner/3d-lab", rev = "2ef8cc9488d5ad0e3bf87cde5e09674ac6cee4d9" }
+three-d-animation = { git = "https://github.com/moritzbrantner/3d-lab", rev = "6bd382d81687a33633e927f69258726f0b85c296" }
+three-d-core = { git = "https://github.com/moritzbrantner/3d-lab", rev = "6bd382d81687a33633e927f69258726f0b85c296" }
 wasm-bindgen = "0.2"
