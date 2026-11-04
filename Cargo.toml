@@ -6,11 +6,11 @@ license = "MIT"
 rust-version = "1.86"
 
 [dependencies]
-bvh-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "9ca4484ccd406e5ae5c02acd783b3eb9b3ba6903" }
-bvh-trace-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "9ca4484ccd406e5ae5c02acd783b3eb9b3ba6903" }
-octree-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "9ca4484ccd406e5ae5c02acd783b3eb9b3ba6903" }
+bvh-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "2082c4e64afaf2af605fbcf28e554a51fc1c9fe3" }
+bvh-trace-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "2082c4e64afaf2af605fbcf28e554a51fc1c9fe3" }
+octree-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "2082c4e64afaf2af605fbcf28e554a51fc1c9fe3" }
 rapier3d = "=0.36.1"
-spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "9ca4484ccd406e5ae5c02acd783b3eb9b3ba6903" }
+spatial-kernels = { git = "https://github.com/moritzbrantner/rust-kernels", rev = "2082c4e64afaf2af605fbcf28e554a51fc1c9fe3" }
 
 [[bench]]
 name = "rapier_scenarios"
