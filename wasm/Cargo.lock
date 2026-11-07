@@ -52,17 +52,17 @@ dependencies = [
 [[package]]
 name = "bvh-kernels"
 version = "0.1.0"
-source = "git+https://github.com/moritzbrantner/rust-kernels?rev=291ae802a2a264d0a3bc5a482f1b3a13bcf86b51#291ae802a2a264d0a3bc5a482f1b3a13bcf86b51"
+source = "git+https://github.com/moritzbrantner/rust-kernels?rev=91055975ba1a1c9f793f611a0541da83ccbfff32#91055975ba1a1c9f793f611a0541da83ccbfff32"
 dependencies = [
- "spatial-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=291ae802a2a264d0a3bc5a482f1b3a13bcf86b51)",
+ "spatial-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=91055975ba1a1c9f793f611a0541da83ccbfff32)",
 ]
 
 [[package]]
 name = "bvh-trace-kernels"
 version = "0.1.0"
-source = "git+https://github.com/moritzbrantner/rust-kernels?rev=291ae802a2a264d0a3bc5a482f1b3a13bcf86b51#291ae802a2a264d0a3bc5a482f1b3a13bcf86b51"
+source = "git+https://github.com/moritzbrantner/rust-kernels?rev=91055975ba1a1c9f793f611a0541da83ccbfff32#91055975ba1a1c9f793f611a0541da83ccbfff32"
 dependencies = [
- "spatial-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=291ae802a2a264d0a3bc5a482f1b3a13bcf86b51)",
+ "spatial-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=91055975ba1a1c9f793f611a0541da83ccbfff32)",
 ]
 
 [[package]]
@@ -87,25 +87,25 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 name = "collision-lab"
 version = "0.1.0"
 dependencies = [
- "bvh-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=291ae802a2a264d0a3bc5a482f1b3a13bcf86b51)",
+ "bvh-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=91055975ba1a1c9f793f611a0541da83ccbfff32)",
  "bvh-trace-kernels",
  "octree-kernels",
  "rapier3d",
- "spatial-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=291ae802a2a264d0a3bc5a482f1b3a13bcf86b51)",
+ "spatial-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=91055975ba1a1c9f793f611a0541da83ccbfff32)",
 ]
 
 [[package]]
 name = "collision-lab-wasm"
 version = "0.1.0"
 dependencies = [
- "bvh-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=291ae802a2a264d0a3bc5a482f1b3a13bcf86b51)",
+ "bvh-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=91055975ba1a1c9f793f611a0541da83ccbfff32)",
  "bvh-trace-kernels",
  "collision-lab",
- "geometry-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=291ae802a2a264d0a3bc5a482f1b3a13bcf86b51)",
+ "geometry-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=91055975ba1a1c9f793f611a0541da83ccbfff32)",
  "octree-kernels",
  "physics-engine",
  "serde_json",
- "spatial-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=291ae802a2a264d0a3bc5a482f1b3a13bcf86b51)",
+ "spatial-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=91055975ba1a1c9f793f611a0541da83ccbfff32)",
  "wasm-bindgen",
 ]
 
@@ -153,9 +153,9 @@ dependencies = [
 [[package]]
 name = "geometry-kernels"
 version = "0.1.0"
-source = "git+https://github.com/moritzbrantner/rust-kernels?rev=291ae802a2a264d0a3bc5a482f1b3a13bcf86b51#291ae802a2a264d0a3bc5a482f1b3a13bcf86b51"
+source = "git+https://github.com/moritzbrantner/rust-kernels?rev=91055975ba1a1c9f793f611a0541da83ccbfff32#91055975ba1a1c9f793f611a0541da83ccbfff32"
 dependencies = [
- "spatial-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=291ae802a2a264d0a3bc5a482f1b3a13bcf86b51)",
+ "spatial-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=91055975ba1a1c9f793f611a0541da83ccbfff32)",
 ]
 
 [[package]]
@@ -366,9 +366,9 @@ dependencies = [
 [[package]]
 name = "octree-kernels"
 version = "0.1.0"
-source = "git+https://github.com/moritzbrantner/rust-kernels?rev=291ae802a2a264d0a3bc5a482f1b3a13bcf86b51#291ae802a2a264d0a3bc5a482f1b3a13bcf86b51"
+source = "git+https://github.com/moritzbrantner/rust-kernels?rev=91055975ba1a1c9f793f611a0541da83ccbfff32#91055975ba1a1c9f793f611a0541da83ccbfff32"
 dependencies = [
- "spatial-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=291ae802a2a264d0a3bc5a482f1b3a13bcf86b51)",
+ "spatial-kernels 0.1.0 (git+https://github.com/moritzbrantner/rust-kernels?rev=91055975ba1a1c9f793f611a0541da83ccbfff32)",
 ]
 
 [[package]]
@@ -602,7 +602,7 @@ source = "git+https://github.com/moritzbrantner/rust-kernels?rev=0408461ba651081
 [[package]]
 name = "spatial-kernels"
 version = "0.1.0"
-source = "git+https://github.com/moritzbrantner/rust-kernels?rev=291ae802a2a264d0a3bc5a482f1b3a13bcf86b51#291ae802a2a264d0a3bc5a482f1b3a13bcf86b51"
+source = "git+https://github.com/moritzbrantner/rust-kernels?rev=91055975ba1a1c9f793f611a0541da83ccbfff32#91055975ba1a1c9f793f611a0541da83ccbfff32"
 
 [[package]]
 name = "stable_deref_trait"
