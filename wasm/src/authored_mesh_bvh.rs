@@ -11,7 +11,8 @@ use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
 
 const SOURCE: &str = "physics-engine/tests/fixtures/redbrand-cave.json";
-const SOURCE_COMMIT: &str = "physics-engine@e7b636b7e37c310906eb0f9f96c7585ece406d75; MMORPG@9ccc3a57";
+const SOURCE_COMMIT: &str =
+    "physics-engine@e7b636b7e37c310906eb0f9f96c7585ece406d75; MMORPG@9ccc3a57";
 const TILE_SPACING: f32 = 110.0;
 
 #[derive(Clone, Copy)]
@@ -57,9 +58,7 @@ impl Bounds {
     }
 
     fn overlaps(self, other: Self) -> bool {
-        (0..3).all(|axis| {
-            self.min[axis] <= other.max[axis] && self.max[axis] >= other.min[axis]
-        })
+        (0..3).all(|axis| self.min[axis] <= other.max[axis] && self.max[axis] >= other.min[axis])
     }
 
     fn json(self) -> Value {
@@ -78,7 +77,11 @@ struct TraceNode {
 /// The trace reconstructs the pinned geometry-kernels median hierarchy from input triangle
 /// AABBs. It does not inspect private kernel nodes. Tests compare visited-node and leaf counts
 /// against the real kernel's counters, so a changed upstream split/traversal cannot pass silently.
-fn trace_hierarchy(leaves: &mut [(u32, Bounds)], nodes: &mut Vec<TraceNode>, depth: usize) -> usize {
+fn trace_hierarchy(
+    leaves: &mut [(u32, Bounds)],
+    nodes: &mut Vec<TraceNode>,
+    depth: usize,
+) -> usize {
     let bounds = leaves
         .iter()
         .skip(1)
@@ -94,14 +97,11 @@ fn trace_hierarchy(leaves: &mut [(u32, Bounds)], nodes: &mut Vec<TraceNode>, dep
     if leaves.len() > 1 {
         let axis = (0..3)
             .max_by(|&a, &b| {
-                (bounds.max[a] - bounds.min[a])
-                    .total_cmp(&(bounds.max[b] - bounds.min[b]))
+                (bounds.max[a] - bounds.min[a]).total_cmp(&(bounds.max[b] - bounds.min[b]))
             })
             .unwrap_or(0);
         leaves.sort_unstable_by(|a, b| {
-            let mid = |leaf: &(u32, Bounds)| {
-                leaf.1.min[axis] * 0.5 + leaf.1.max[axis] * 0.5
-            };
+            let mid = |leaf: &(u32, Bounds)| leaf.1.min[axis] * 0.5 + leaf.1.max[axis] * 0.5;
             mid(a).total_cmp(&mid(b)).then(a.0.cmp(&b.0))
         });
         let middle = leaves.len() / 2;
@@ -176,7 +176,10 @@ impl MeshCase {
                     .iter()
                     .enumerate()
                 {
-                    let values = triangle.as_array().filter(|v| v.len() == 3).ok_or("bad triangle")?;
+                    let values = triangle
+                        .as_array()
+                        .filter(|v| v.len() == 3)
+                        .ok_or("bad triangle")?;
                     let mut corners = [0_u32; 3];
                     for corner in 0..3 {
                         let local = u32::try_from(values[corner].as_u64().ok_or("bad index")?)
@@ -186,9 +189,8 @@ impl MeshCase {
                     if corners.iter().any(|&i| i as usize >= vertices.len()) {
                         return Err("triangle references a missing vertex".into());
                     }
-                    let geometry = corners.map(|i| {
-                        vertices[i as usize].map(|component| component as f32)
-                    });
+                    let geometry =
+                        corners.map(|i| vertices[i as usize].map(|component| component as f32));
                     triangles.push(geometry);
                     indices.push(corners);
                     sources.push(TriangleSource {
@@ -208,7 +210,10 @@ impl MeshCase {
             .iter()
             .enumerate()
             .map(|(index, triangle)| {
-                (index as u32, Bounds::around(triangle.map(|point| point.map(f64::from))))
+                (
+                    index as u32,
+                    Bounds::around(triangle.map(|point| point.map(f64::from))),
+                )
             })
             .collect::<Vec<_>>();
         let mut nodes = Vec::with_capacity(triangles.len() * 2 - 1);
@@ -282,20 +287,28 @@ impl MeshCase {
             .iter()
             .enumerate()
             .filter_map(|(id, triangle)| {
-                segment_triangle(start, end, *triangle, TriangleCulling::None)
-                    .map(|hit| HitWitness {
+                segment_triangle(start, end, *triangle, TriangleCulling::None).map(|hit| {
+                    HitWitness {
                         triangle: id as u32,
                         fraction: hit.fraction,
                         surface_point: hit.point,
                         normal: None,
-                    })
+                    }
+                })
             })
             .min_by(|a, b| {
-                a.fraction.total_cmp(&b.fraction).then(a.triangle.cmp(&b.triangle))
+                a.fraction
+                    .total_cmp(&b.fraction)
+                    .then(a.triangle.cmp(&b.triangle))
             })
     }
 
-    fn capsule_reference(&self, p: [f64; 3], q: [f64; 3], displacement: [f64; 3]) -> Result<Option<HitWitness>, String> {
+    fn capsule_reference(
+        &self,
+        p: [f64; 3],
+        q: [f64; 3],
+        displacement: [f64; 3],
+    ) -> Result<Option<HitWitness>, String> {
         let mut best: Option<(HitWitness, f64)> = None;
         for (id, triangle) in self.triangles.iter().enumerate() {
             // Exhaustive oracle: a one-triangle kernel query per authored triangle, without
@@ -303,11 +316,17 @@ impl MeshCase {
             let prepared = PreparedTriangleMesh3::try_new(TriangleMeshData3 {
                 vertices: triangle.iter().map(|v| v.map(f64::from)).collect(),
                 triangles: vec![[0, 1, 2]],
-            }).map_err(|error| error.to_string())?;
-            if let Some(hit) = prepared.capsule_sweep(p, q, 0.3, displacement, 32)
+            })
+            .map_err(|error| error.to_string())?;
+            if let Some(hit) = prepared
+                .capsule_sweep(p, q, 0.3, displacement, 32)
                 .map_err(|error| error.to_string())?
             {
-                let rate = displacement.iter().zip(hit.contact.normal).map(|(d, n)| *d * n).sum::<f64>();
+                let rate = displacement
+                    .iter()
+                    .zip(hit.contact.normal)
+                    .map(|(d, n)| *d * n)
+                    .sum::<f64>();
                 let candidate = HitWitness {
                     triangle: id as u32,
                     fraction: hit.fraction,
@@ -317,8 +336,10 @@ impl MeshCase {
                 if best.is_none_or(|(current, current_rate)| {
                     candidate.fraction < current.fraction
                         || (candidate.fraction == current.fraction
-                            && rate.total_cmp(&current_rate)
-                                .then(candidate.triangle.cmp(&current.triangle)).is_lt())
+                            && rate
+                                .total_cmp(&current_rate)
+                                .then(candidate.triangle.cmp(&current.triangle))
+                                .is_lt())
                 }) {
                     best = Some((candidate, rate));
                 }
@@ -342,7 +363,9 @@ impl MeshCase {
             let p = [x, 11.4, -138.0];
             let q = [x, 12.0, -138.0];
             let displacement = [0.0, -2.0, 0.0];
-            let hit = self.prepared.capsule_sweep_counted(p, q, 0.3, displacement, 32, &mut work)
+            let hit = self
+                .prepared
+                .capsule_sweep_counted(p, q, 0.3, displacement, 32, &mut work)
                 .map_err(|error| error.to_string())?;
             let accelerated = hit.map(|hit| HitWitness {
                 triangle: hit.contact.triangle,
@@ -372,12 +395,18 @@ impl MeshCase {
         };
         let parity = match (accelerated, reference) {
             (None, None) => true,
-            (Some(a), Some(b)) => a.triangle == b.triangle
-                && (a.fraction - b.fraction).abs() <= 1e-8
-                && a.surface_point.iter().zip(b.surface_point).all(|(a, b)| (*a - b).abs() <= 1e-7),
+            (Some(a), Some(b)) => {
+                a.triangle == b.triangle
+                    && (a.fraction - b.fraction).abs() <= 1e-8
+                    && a.surface_point
+                        .iter()
+                        .zip(b.surface_point)
+                        .all(|(a, b)| (*a - b).abs() <= 1e-7)
+            }
             _ => false,
         };
-        let witness = |hit: Option<HitWitness>| hit.map(|hit| {
+        let witness = |hit: Option<HitWitness>| {
+            hit.map(|hit| {
             let source = self.sources[hit.triangle as usize];
             json!({
                 "triangle": hit.triangle,
@@ -388,7 +417,8 @@ impl MeshCase {
                 "normal": hit.normal,
                 "queryPosition": [x, (if mode == "capsule" { 11.7 } else { start[1] }) + (end[1] - start[1]) * hit.fraction, -138.0],
             })
-        });
+        })
+        };
         Ok(json!({
             "mode": mode,
             "origin": start,
@@ -419,11 +449,14 @@ pub struct AuthoredMeshBvhLesson {
 impl AuthoredMeshBvhLesson {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<AuthoredMeshBvhLesson, JsValue> {
-        Ok(Self { case: MeshCase::new(1).map_err(|e| JsValue::from_str(&e))? })
+        Ok(Self {
+            case: MeshCase::new(1).map_err(|e| JsValue::from_str(&e))?,
+        })
     }
 
     pub fn query_json(&self, origin_x: f64, mode: &str) -> Result<String, JsValue> {
-        self.case.query(origin_x, mode)
+        self.case
+            .query(origin_x, mode)
             .and_then(|value| serde_json::to_string(&value).map_err(|e| e.to_string()))
             .map_err(|e| JsValue::from_str(&e))
     }
@@ -431,11 +464,15 @@ impl AuthoredMeshBvhLesson {
     pub fn scale_json(&self) -> Result<String, JsValue> {
         let mut cases = Vec::new();
         for replicas in [1, 4, 16] {
-            let case = if replicas == 1 { None } else {
+            let case = if replicas == 1 {
+                None
+            } else {
                 Some(MeshCase::new(replicas).map_err(|e| JsValue::from_str(&e))?)
             };
             let case = case.as_ref().unwrap_or(&self.case);
-            let report = case.query(62.0, "segment").map_err(|e| JsValue::from_str(&e))?;
+            let report = case
+                .query(62.0, "segment")
+                .map_err(|e| JsValue::from_str(&e))?;
             cases.push(json!({
                 "preparation": case.preparation_json(),
                 "counts": report["counts"],
@@ -473,8 +510,14 @@ mod tests {
         for mode in ["ray", "segment"] {
             for x in [45.0, 49.0, 58.0, 62.0, 67.0, 70.0, 78.0, 85.0] {
                 let report = case.query(x, mode).expect("valid query");
-                assert!(report["parity"].as_bool().unwrap(), "{mode} at {x}: {report}");
-                assert_eq!(report["trace"].as_array().unwrap().len() as u64, report["counts"]["bvhNodesVisited"].as_u64().unwrap());
+                assert!(
+                    report["parity"].as_bool().unwrap(),
+                    "{mode} at {x}: {report}"
+                );
+                assert_eq!(
+                    report["trace"].as_array().unwrap().len() as u64,
+                    report["counts"]["bvhNodesVisited"].as_u64().unwrap()
+                );
             }
         }
     }
@@ -494,9 +537,15 @@ mod tests {
             let case = MeshCase::new(replicas).expect("authored mesh must prepare");
             let report = case.query(62.0, "segment").expect("valid query");
             assert!(report["parity"].as_bool().unwrap(), "{report}");
-            assert!(report["counts"]["bvhTrianglesTested"].as_u64().unwrap() < (14 * 12 * replicas) as u64);
+            assert!(
+                report["counts"]["bvhTrianglesTested"].as_u64().unwrap()
+                    < (14 * 12 * replicas) as u64
+            );
             assert_eq!(report["counts"]["retainedBuilds"], 1);
-            assert_eq!(case.prepared.preparation().nodes_prepared, 2 * (14 * 12 * replicas) as u64 - 1);
+            assert_eq!(
+                case.prepared.preparation().nodes_prepared,
+                2 * (14 * 12 * replicas) as u64 - 1
+            );
         }
     }
 }
