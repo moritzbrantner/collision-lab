@@ -66,6 +66,17 @@ Reusable geometry mechanisms live in `rust-kernels::geometry-kernels`; Collision
 
 Collision Lab also consumes [`physics-engine`](https://github.com/moritzbrantner/physics-engine) as an external simulation authority for focused engine evidence. The Explanation page executes the engine's public f64 fixed-step API through WASM to inspect its four-shape primitive specialization matrix and a fast-capsule/thin-wedge CCD case. Collision Lab owns the scenarios and presentation only; wedge geometry, primitive dispatch, contact semantics, and CCD stay in Physics Engine rather than being copied into the lab.
 
+### Authored triangle-mesh BVH case study (#158)
+
+`/explain/` also contains an interactive **all-triangle versus retained mesh BVH** lesson based on the [Redbrand cave mesh fixture used by Physics Engine PR #493](https://github.com/moritzbrantner/physics-engine/pull/493). Its versioned copy lives in `wasm/fixtures/redbrand-cave.json`, sourced from `physics-engine` commit `e7b636b7e37c310906eb0f9f96c7585ece406d75` (original MMORPG geometry `9ccc3a57`). The fixture has 14 chunks and 168 triangles. For teaching, the adapter flattens them into one immutable mesh and optionally places 4 or 16 spatially separated copies. **The production engine still owns its distinct fixed authored mesh chunks and movement logic**; no game state or solver is copied here.
+
+- **Algorithm authority:** `geometry-kernels::triangle_mesh::PreparedTriangleMesh3` at Collision Lab's pinned `rust-kernels` revision owns BVH construction, exact segment/capsule queries, stable input triangle IDs, and counted traversal. An exhaustive reference tests every original triangle using the same shared exact segment–triangle kernel; the capsule reference queries each triangle independently with a one-triangle prepared kernel.
+- **Trace provenance:** Rust reconstructs the shared kernel's deterministic median-split hierarchy to illustrate parent rejection and candidate leaves. Every ray/segment query checks reconstructed node and leaf counts against the *actual kernel counters*, and fails rather than displaying a divergent trace. The capsule sweep exposes kernel aggregate counters only; it does **not** falsely claim a node-by-node kernel trace.
+- **Cost evidence:** reproducible triangle counts, tested leaf counts, visited nodes, one-time prepared nodes and retained payload bytes. The size table uses the same deterministic query and separate copies of the fixture. These are operation counts/retained bytes, **not wall-clock timings or a real MMORPG frame benchmark**; temporary brute-force capsule reference preparation is excluded from retained mesh cost.
+- **Limitations:** build/memory overhead, poor pruning for broad or highly overlapping triangles, and a static surface hierarchy that says nothing by itself about moving-body CCD, character response, or solver stability. Ray and segment are two different finite lengths of the same exact kernel segment query.
+
+Focused checks: `cargo test --manifest-path wasm/Cargo.toml authored_mesh_bvh` and `cd web && bun run wasm && bun run test:e2e -- authored-mesh-bvh.spec.ts`. The existing CI and Pages workflows run the corresponding full gates.
+
 ## Website development
 
 The `web/` application is a statically exported Next.js site for GitHub Pages.

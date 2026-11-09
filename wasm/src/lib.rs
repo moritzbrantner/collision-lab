@@ -1,5 +1,6 @@
 #[path = "physics_engine.rs"]
 mod physics_engine_evidence;
+mod authored_mesh_bvh;
 mod presets;
 
 use bvh_kernels::DynamicAabbNodeSnapshot;

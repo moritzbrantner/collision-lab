@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AuthoredMeshBvhLessonPanel } from "../../components/authored-mesh-bvh-lesson";
 import { AnalyticalPrimitivesExplanation } from "../../components/analytical-primitives-explanation";
 import { CommonPrimitivesExplanation } from "../../components/common-primitives-explanation";
 import { DynamicAabbExplanation } from "../../components/dynamic-aabb-explanation";
@@ -53,6 +54,17 @@ export default function ExplainPage() {
           </p>
         </div>
         <StaticBvhExplanation />
+      </div>
+
+      <div className="mt-14">
+        <div className="mb-6 max-w-3xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">Hierarchy lesson · Authored triangle surfaces</p>
+          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-zinc-100">A retained BVH also makes detailed terrain queryable.</h2>
+          <p className="mt-3 leading-7 text-zinc-500">
+            Unlike the object-pair BVH above, this hierarchy rejects groups of individual mesh triangles. Move the query, compare against the exhaustive reference, and inspect the deterministic kernel work before deciding whether the one-time build is worthwhile.
+          </p>
+        </div>
+        <AuthoredMeshBvhLessonPanel />
       </div>
 
       <div className="mt-14">
