@@ -1,3 +1,4 @@
+mod authored_mesh_bvh;
 #[path = "physics_engine.rs"]
 mod physics_engine_evidence;
 mod presets;
